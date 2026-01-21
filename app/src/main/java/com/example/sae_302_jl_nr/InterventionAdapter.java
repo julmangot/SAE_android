@@ -33,14 +33,12 @@ public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapte
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         Intervention i = data.get(position);
 
-        holder.tvLine1.setText(i.titre);
-        holder.tvLine2.setText(i.sousTitre);
+        holder.tvLine1.setText(i.type + " | " + i.technician);
+        holder.tvLine2.setText(i.status + " | " + i.city);
 
         holder.itemView.setOnClickListener(v -> {
             Intent intent = new Intent(v.getContext(), DetailActivity.class);
-            intent.putExtra(DetailActivity.EXTRA_TITRE, i.titre);
-            intent.putExtra(DetailActivity.EXTRA_SOUS_TITRE, i.sousTitre);
-            intent.putExtra(DetailActivity.EXTRA_DATE, i.date.toString());
+            intent.putExtra("EXTRA_INTER", i); // On envoie TOUT l'objet
             v.getContext().startActivity(intent);
         });
     }

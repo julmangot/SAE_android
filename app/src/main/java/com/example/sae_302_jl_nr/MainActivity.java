@@ -31,14 +31,15 @@ public class MainActivity extends AppCompatActivity {
 
     private final DateTimeFormatter formatter =
             DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.FRENCH);
-
+    private List<Intervention> allInterventions = new ArrayList<>();
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
-
+        initAllData(); // On charge les 15 interventions une seule fois
+        reloadInterventionsForDay(); // On affiche celles du jour actuel
         // Padding auto pour les barres système (status bar / nav bar)
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
@@ -87,23 +88,30 @@ public class MainActivity extends AppCompatActivity {
             tvDate.setText(currentDate.format(formatter));
         }
     }
+    private void initAllData() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            // Semaine du 19 au 25 Janvier
+            allInterventions.add(new Intervention("15480", "19 Janvier", LocalDate.of(2026, 1, 19), "SAV Fibre", "Critique", "Medhi Ralouf", "10 rue Paris", "Rennes", "Soudure", "1h", "Soudeuse", "Planifiée"));
+            allInterventions.add(new Intervention("15481", "20 Janvier", LocalDate.of(2026, 1, 20), "Installation", "Basse", "Julie Bois", "2 av. Briand", "Rennes", "Pose Box", "45min", "Modem", "Terminée"));
 
+            // JOUR TEST : 21 Janvier (On en met 3 ce jour là)
+            allInterventions.add(new Intervention("15485", "21 Janvier", LocalDate.of(2026, 1, 21), "SAV Problème fibre", "Critique Haute", "Medhi Ralouf", "10 rue de paris", "Rennes", "Test de continuité", "1h30", "Soudeuse optique", "Planifiée"));
+            allInterventions.add(new Intervention("15486", "21 Janvier", LocalDate.of(2026, 1, 21), "Raccordement", "Moyenne", "Martin Delavega", "Zone Sud", "Béton", "Tirage", "2h", "Echelle", "En cours"));
+            allInterventions.add(new Intervention("15487", "21 Janvier", LocalDate.of(2026, 1, 21), "SAV Fibre", "Haute", "Julie Bois", "Rue Fougères", "Rennes", "Soudure", "1h", "Soudeuse", "Planifiée"));
+
+            // Autres jours... (ajoute les 10 autres ici sur des dates différentes)
+            allInterventions.add(new Intervention("15490", "22 Janvier", LocalDate.of(2026, 1, 22), "Audit", "Basse", "Thomas Le Gall", "Mairie", "Dinan", "Mesures", "3h", "Tablette", "Planifiée"));
+        }
+    }
     private void reloadInterventionsForDay() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || currentDate == null) return;
 
-        List<Intervention> list = new ArrayList<>();
-
-        // Exemple: on affiche 1 item seulement le 21 janvier 2026
-        LocalDate testDate = LocalDate.of(2026, 1, 21);
-
-        if (currentDate.equals(testDate)) {
-            list.add(new Intervention(
-                    "Raccordement fibre | Client Test",
-                    "Planifiée | Saint-Malo",
-                    currentDate
-            ));
+        List<Intervention> filteredList = new ArrayList<>();
+        for (Intervention i : allInterventions) {
+            if (i.dateDoc.equals(currentDate)) {
+                filteredList.add(i);
+            }
         }
-
-        adapter.setData(list);
+        adapter.setData(filteredList);
     }
 }

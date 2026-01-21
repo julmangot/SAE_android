@@ -13,34 +13,31 @@ public class DetailActivity extends AppCompatActivity {
     public static final String EXTRA_SOUS_TITRE = "extra_sous_titre";
     public static final String EXTRA_DATE = "extra_date";
 
+    // Dans DetailActivity.java
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        EdgeToEdge.enable(this);
         setContentView(R.layout.activity_detail);
 
-        // Vues
+        Intervention i = (Intervention) getIntent().getSerializableExtra("EXTRA_INTER");
+        if (i == null) return;
+
         TextView tvDetails = findViewById(R.id.tvDetails);
-        ImageButton btnBack = findViewById(R.id.btnBack);
 
-        // Données reçues depuis l’agenda
-        String titre = getIntent().getStringExtra(EXTRA_TITRE);
-        String sousTitre = getIntent().getStringExtra(EXTRA_SOUS_TITRE);
-        String date = getIntent().getStringExtra(EXTRA_DATE);
+        // On construit l'affichage exact de ta Fenêtre 2 du PDF
+        String content = "Mission n°" + i.idMission + "\n\n" +
+                "Date : " + i.dateTexte + "\n" +
+                "Type : " + i.type + "\n" +
+                "Priorité : " + i.priority + "\n" +
+                "Technicien : " + i.technician + "\n" +
+                "Localisation : " + i.address + ", " + i.city + "\n\n" +
+                "Actions : " + i.actions + "\n" +
+                "Temps : " + i.time + "\n" +
+                "Matériel : " + i.material + "\n\n" +
+                "Statut actuel : " + i.status;
 
-        // Texte de détail
-        String details =
-                "• Date : " + (date != null ? date : "-") + "\n" +
-                        "• Mission : " + (titre != null ? titre : "-") + "\n" +
-                        "• Statut / Lieu : " + (sousTitre != null ? sousTitre : "-") + "\n\n" +
-                        "• Actions à mener : Test de continuité\n" +
-                        "• Temps estimé : 1h30\n" +
-                        "• Matériel : Soudeuse optique, jarretière fibre";
+        tvDetails.setText(content);
 
-        tvDetails.setText(details);
-
-        // Retour vers l’agenda
-        btnBack.setOnClickListener(v -> finish());
+        findViewById(R.id.btnBack).setOnClickListener(v -> finish());
     }
 }
