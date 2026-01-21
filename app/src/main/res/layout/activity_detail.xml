@@ -2,6 +2,7 @@
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main_detail"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#EFEFEF"
@@ -97,16 +98,7 @@
                     android:textColor="#1A1A1A"
                     android:textSize="13sp"
                     android:lineSpacingExtra="3dp"
-                    android:text="• Mission n°15485
-• Date : 17 janvier 2026
-• Type de mission : SAV Problème fibre
-• Priorité : Critique Haute
-• Technicien : Medhi Ralouf
-• Localisation : 10 rue de Paris, 35000 Rennes
-• Actions à mener : Test de continuité
-• Temps estimé : 1h30
-• Matériel nécessaire : Soudeuse optique, jarretière fibre
-• Statut actuel : Planifiée"
+                    android:text="..."
                     tools:text="• Mission n°15485&#10;• Date : 17 janvier 2026&#10;• Type de mission : SAV Problème fibre" />
             </ScrollView>
 
