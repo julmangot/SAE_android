@@ -1,6 +1,7 @@
 package com.example.sae_302_jl_nr;
 
 import android.content.Intent;
+import android.graphics.Color;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -17,7 +18,11 @@ public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapte
     private List<Intervention> data = new ArrayList<>();
 
     public void setData(List<Intervention> newData) {
-        data = newData;
+        if (newData == null) {
+            data = new ArrayList<>();
+        } else {
+            data = newData;
+        }
         notifyDataSetChanged();
     }
 
@@ -33,12 +38,44 @@ public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapte
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         Intervention i = data.get(position);
 
-        holder.tvLine1.setText(i.type + " | " + i.technician);
-        holder.tvLine2.setText(i.status + " | " + i.city);
+        // Textes (via le modèle, plus de champs directs)
+        holder.tvLine1.setText(i.getTitreCarte());
+        holder.tvLine2.setText(i.getSousTitreCarte());
 
+        // 🎨 Couleur selon priorité
+        switch (i.priorite) {
+            case 3:
+                holder.vPriority.setBackgroundColor(Color.parseColor("#F05A5A"));
+                break;
+            case 2:
+                holder.vPriority.setBackgroundColor(Color.parseColor("#F5A623"));
+                break;
+            default:
+                holder.vPriority.setBackgroundColor(Color.parseColor("#4CAF50"));
+                break;
+        }
+
+        // Clic → écran détail
         holder.itemView.setOnClickListener(v -> {
             Intent intent = new Intent(v.getContext(), DetailActivity.class);
-            intent.putExtra("EXTRA_INTER", i); // On envoie TOUT l'objet
+
+            intent.putExtra(
+                    DetailActivity.EXTRA_TITRE,
+                    i.getTitreCarte()
+            );
+            intent.putExtra(
+                    DetailActivity.EXTRA_SOUS_TITRE,
+                    i.getSousTitreCarte()
+            );
+
+            if (i.date != null) {
+                intent.putExtra(DetailActivity.EXTRA_DATE, i.date.toString());
+            } else {
+                intent.putExtra(DetailActivity.EXTRA_DATE, "-");
+            }
+
+            intent.putExtra(DetailActivity.EXTRA_PRIORITE, i.priorite);
+
             v.getContext().startActivity(intent);
         });
     }
@@ -49,12 +86,16 @@ public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapte
     }
 
     static class ViewHolder extends RecyclerView.ViewHolder {
-        TextView tvLine1, tvLine2;
+
+        TextView tvLine1;
+        TextView tvLine2;
+        View vPriority;
 
         ViewHolder(@NonNull View itemView) {
             super(itemView);
             tvLine1 = itemView.findViewById(R.id.tvLine1);
             tvLine2 = itemView.findViewById(R.id.tvLine2);
+            vPriority = itemView.findViewById(R.id.vPriority);
         }
     }
 }
