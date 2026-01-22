@@ -11,56 +11,65 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
-public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapter.ViewHolder> {
+public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapter.VH> {
 
     public interface OnInterventionClickListener {
-        void onInterventionClick(Intervention intervention);
+        void onClick(Intervention intervention);
     }
 
-    private OnInterventionClickListener clickListener;
-
-    public void setOnInterventionClickListener(OnInterventionClickListener l) {
-        this.clickListener = l;
-    }
-
+    private OnInterventionClickListener listener;
     private List<Intervention> data = new ArrayList<>();
 
+    public void setOnInterventionClickListener(OnInterventionClickListener l) {
+        this.listener = l;
+    }
+
     public void setData(List<Intervention> newData) {
-        this.data = newData != null ? newData : new ArrayList<>();
+        data = (newData == null) ? new ArrayList<>() : newData;
         notifyDataSetChanged();
     }
 
     @NonNull
     @Override
-    public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+    public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View v = LayoutInflater.from(parent.getContext())
                 .inflate(R.layout.item_intervention, parent, false);
-        return new ViewHolder(v);
+        return new VH(v);
     }
 
     @Override
-    public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+    public void onBindViewHolder(@NonNull VH h, int position) {
         Intervention i = data.get(position);
 
-        holder.tvLine1.setText(i.getTitreCarte());
-        holder.tvLine2.setText(i.getSousTitreCarte());
+        // Priorité DB (Basse/Moyenne/Haute/Critique...)
+        String pr = (i.prioriteStr == null) ? "" : i.prioriteStr.trim();
+        String prLower = pr.toLowerCase(Locale.ROOT);
 
-        // ✅ priorité int (comme ton ancien code)
-        switch (i.priorite) {
-            case 3:
-                holder.vPriority.setBackgroundColor(Color.parseColor("#F05A5A"));
-                break;
-            case 2:
-                holder.vPriority.setBackgroundColor(Color.parseColor("#F5A623"));
-                break;
-            default:
-                holder.vPriority.setBackgroundColor(Color.parseColor("#4CAF50"));
-                break;
-        }
+        int color = Color.parseColor("#4CAF50"); // basse
+        if (prLower.contains("critique")) color = Color.parseColor("#D32F2F");
+        else if (prLower.contains("haute") || prLower.contains("haut")) color = Color.parseColor("#F05A5A");
+        else if (prLower.contains("moy")) color = Color.parseColor("#F5A623");
 
-        holder.itemView.setOnClickListener(v -> {
-            if (clickListener != null) clickListener.onInterventionClick(i);
+        h.vPriority.setBackgroundColor(color);
+
+        // Ligne 1 : "Type | Technicien"
+        String type = (i.type == null) ? "" : i.type;
+        String tech = (i.technicien == null) ? "" : i.technicien;
+        String line1 = type;
+        if (!tech.isEmpty()) line1 += " | " + tech;
+        h.tvLine1.setText(line1.trim());
+
+        // Ligne 2 : "Statut | Ville"
+        String statut = (i.statut == null) ? "" : i.statut;
+        String ville = (i.ville == null) ? "" : i.ville;
+        String line2 = statut;
+        if (!ville.isEmpty()) line2 += " | " + ville;
+        h.tvLine2.setText(line2.trim());
+
+        h.itemView.setOnClickListener(v -> {
+            if (listener != null) listener.onClick(i);
         });
     }
 
@@ -69,15 +78,15 @@ public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapte
         return data.size();
     }
 
-    static class ViewHolder extends RecyclerView.ViewHolder {
-        TextView tvLine1, tvLine2;
+    static class VH extends RecyclerView.ViewHolder {
         View vPriority;
+        TextView tvLine1, tvLine2;
 
-        ViewHolder(@NonNull View itemView) {
+        VH(@NonNull View itemView) {
             super(itemView);
+            vPriority = itemView.findViewById(R.id.vPriority);
             tvLine1 = itemView.findViewById(R.id.tvLine1);
             tvLine2 = itemView.findViewById(R.id.tvLine2);
-            vPriority = itemView.findViewById(R.id.vPriority);
         }
     }
 }

@@ -48,8 +48,7 @@ public class MainActivity extends AppCompatActivity {
     private final DateTimeFormatter formatter =
             DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.FRENCH);
 
-    // ✅ API (cohérent avec tes fichiers VPS)
-    private static final String API_BASE = "http://51.38.176.17";
+    private static final String API_BASE   = "http://51.38.176.17";
     private static final String API_LIST   = API_BASE + "/interventions.php?date=";
     private static final String API_CREATE = API_BASE + "/interventions_create.php";
 
@@ -82,7 +81,6 @@ public class MainActivity extends AppCompatActivity {
 
         requestQueue = Volley.newRequestQueue(this);
 
-        // ✅ retour DetailActivity => si changed=true => reload DB
         detailLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
@@ -93,20 +91,23 @@ public class MainActivity extends AppCompatActivity {
                 }
         );
 
-        // ✅ clic sur item => open détail
         adapter.setOnInterventionClickListener(intervention -> {
             Intent intent = new Intent(MainActivity.this, DetailActivity.class);
 
-            intent.putExtra("reference", intervention.idMission);
+            intent.putExtra("reference", intervention.idMission);  // référence DB
+            intent.putExtra("statut", intervention.statut);        // ✅ pour afficher pareil
+            intent.putExtra("priorite", intervention.prioriteStr); // ✅ si tu as ce champ, sinon intervention.prioriteText
 
+            intent.putExtra("type", intervention.type);
+            intent.putExtra("ville", intervention.ville);
 
-            // bonus
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && currentDate != null) {
                 intent.putExtra("selectedDate", currentDate.toString());
             }
 
             detailLauncher.launch(intent);
         });
+
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             currentDate = LocalDate.now();
@@ -172,7 +173,6 @@ public class MainActivity extends AppCompatActivity {
                         JSONObject o = response.optJSONObject(idx);
                         if (o == null) continue;
 
-                        // JSON DB
                         String reference = o.optString("reference", "");
                         String dateStr = o.optString("date_intervention", currentDate.toString());
                         if (dateStr.contains(" ")) dateStr = dateStr.split(" ")[0];
@@ -185,14 +185,15 @@ public class MainActivity extends AppCompatActivity {
                         String action = o.optString("action_realisee", "");
                         String duree = o.optString("duree", "");
                         String materiel = o.optString("materiel", "");
-                        String statut = o.optString("statut", "");
+                        String statut = o.optString("statut", "Planifié");
 
-                        LocalDate d = LocalDate.parse(dateStr);
+                        LocalDate d;
+                        try { d = LocalDate.parse(dateStr); }
+                        catch (Exception e) { d = currentDate; }
 
                         String libelleCourt = d.getDayOfMonth() + " " +
                                 d.getMonth().getDisplayName(java.time.format.TextStyle.FULL, Locale.FRENCH);
 
-                        // ✅ on crée l'objet Intervention comme TU le faisais déjà dans ton MainActivity
                         Intervention in = new Intervention(
                                 reference,
                                 libelleCourt,
@@ -208,12 +209,9 @@ public class MainActivity extends AppCompatActivity {
                                 statut
                         );
 
-                        // ✅ IMPORTANT : ton DetailActivity attend idMission => on map reference -> idMission
-                        in.idMission = reference;
-
-                        // ✅ priorité int pour la couleur (adapter utilise i.priorite)
+                        // calcul priorite int (pour couleur)
                         int prioriteInt = 1;
-                        String p = prioriteStr.toLowerCase(Locale.ROOT);
+                        String p = (prioriteStr == null) ? "" : prioriteStr.toLowerCase(Locale.ROOT);
                         if (p.contains("haut")) prioriteInt = 3;
                         else if (p.contains("moy")) prioriteInt = 2;
                         in.priorite = prioriteInt;
@@ -249,7 +247,9 @@ public class MainActivity extends AppCompatActivity {
             body.put("action_realisee", "");
             body.put("duree", "");
             body.put("materiel", "");
-            body.put("statut", "Planifiée");
+
+            // ✅ IMPORTANT: valeur identique DB + DetailActivity
+            body.put("statut", "Planifié");
 
             JsonObjectRequest req = new JsonObjectRequest(
                     Request.Method.POST,
