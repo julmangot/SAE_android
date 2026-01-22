@@ -5,12 +5,12 @@ import java.time.LocalDate;
 public class Intervention {
 
     public String idMission;
-    public String libelleCourt;     // ex: "19 Janvier" (si tu veux un libellé date court)
+    public String libelleCourt;
     public LocalDate date;
 
-    public String typeMission;      // ex: "SAV Fibre"
-    public String prioriteTexte;    // ex: "Critique", "Moyenne", "Basse"
-    public int priorite;            // 1=vert, 2=orange, 3=rouge
+    public String typeMission;
+    public String prioriteTexte;
+    public int priorite; // 1=vert, 2=orange, 3=rouge
 
     public String technicien;
     public String adresse;
@@ -19,7 +19,7 @@ public class Intervention {
     public String action;
     public String tempsEstime;
     public String materiel;
-    public String statut;           // ex: "Planifiée"
+    public String statut; // "Planifiée", "En cours", "Terminée"
 
     public Intervention(
             String idMission,
@@ -53,7 +53,6 @@ public class Intervention {
         this.statut = statut;
     }
 
-    // Convertit "Critique" -> 3 (rouge), "Moyenne" -> 2 (orange), sinon 1 (vert)
     private int mapPriorite(String txt) {
         if (txt == null) return 1;
         String p = txt.toLowerCase();
@@ -63,12 +62,11 @@ public class Intervention {
         return 1;
     }
 
-    // Texte à afficher dans la carte (ligne 1)
     public String getTitreCarte() {
         return "SAV | " + (typeMission != null ? typeMission : "") + " | " + (technicien != null ? technicien : "");
     }
 
-    // Texte à afficher dans la carte (ligne 2)
+    // Le sous-titre doit être dynamique car le statut change
     public String getSousTitreCarte() {
         return (statut != null ? statut : "") + " | " + (ville != null ? ville : "");
     }

@@ -18,11 +18,7 @@ public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapte
     private List<Intervention> data = new ArrayList<>();
 
     public void setData(List<Intervention> newData) {
-        if (newData == null) {
-            data = new ArrayList<>();
-        } else {
-            data = newData;
-        }
+        this.data = newData != null ? newData : new ArrayList<>();
         notifyDataSetChanged();
     }
 
@@ -38,11 +34,11 @@ public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapte
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         Intervention i = data.get(position);
 
-        // Textes (via le modèle, plus de champs directs)
+        // Affichage dynamique
         holder.tvLine1.setText(i.getTitreCarte());
         holder.tvLine2.setText(i.getSousTitreCarte());
 
-        // 🎨 Couleur selon priorité
+        // Couleur priorité
         switch (i.priorite) {
             case 3:
                 holder.vPriority.setBackgroundColor(Color.parseColor("#F05A5A"));
@@ -55,27 +51,10 @@ public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapte
                 break;
         }
 
-        // Clic → écran détail
+        // Clic : on envoie juste l'ID pour récupérer le vrai objet plus tard
         holder.itemView.setOnClickListener(v -> {
             Intent intent = new Intent(v.getContext(), DetailActivity.class);
-
-            intent.putExtra(
-                    DetailActivity.EXTRA_TITRE,
-                    i.getTitreCarte()
-            );
-            intent.putExtra(
-                    DetailActivity.EXTRA_SOUS_TITRE,
-                    i.getSousTitreCarte()
-            );
-
-            if (i.date != null) {
-                intent.putExtra(DetailActivity.EXTRA_DATE, i.date.toString());
-            } else {
-                intent.putExtra(DetailActivity.EXTRA_DATE, "-");
-            }
-
-            intent.putExtra(DetailActivity.EXTRA_PRIORITE, i.priorite);
-
+            intent.putExtra(DetailActivity.EXTRA_ID_MISSION, i.idMission);
             v.getContext().startActivity(intent);
         });
     }
@@ -86,9 +65,7 @@ public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapte
     }
 
     static class ViewHolder extends RecyclerView.ViewHolder {
-
-        TextView tvLine1;
-        TextView tvLine2;
+        TextView tvLine1, tvLine2;
         View vPriority;
 
         ViewHolder(@NonNull View itemView) {

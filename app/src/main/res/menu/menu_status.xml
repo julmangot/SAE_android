@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/status_planned"
+        android:title="Planifiée" />
+    <item
+        android:id="@+id/status_ongoing"
+        android:title="En cours" />
+    <item
+        android:id="@+id/status_finished"
+        android:title="Terminée" />
+</menu>
