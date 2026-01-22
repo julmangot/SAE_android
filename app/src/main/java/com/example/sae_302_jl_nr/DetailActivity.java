@@ -25,30 +25,18 @@ import java.util.Locale;
 
 public class DetailActivity extends AppCompatActivity {
 
+    // ⚠️ Vérifie bien ton IP ici
     private static final String API_BASE = "http://51.38.176.17";
     private static final String API_STATUS = API_BASE + "/interventions_status.php";
     private static final String API_DELETE = API_BASE + "/interventions_delete.php";
 
     private RequestQueue requestQueue;
-
     private TextView tvDetails;
-    private View vPriority;
+    private View vLeft; // Barre de couleur
 
-    private String reference;
-    private String selectedDate;
-
-    // ✅ valeurs DB
-    private String statut = "Planifiée";
-    private String priorite = "Basse";
-
-    // champs optionnels (si pas de endpoint détail)
-    private String type = "";
-    private String technicien = "";
-    private String adresse = "";
-    private String ville = "";
-    private String action = "";
-    private String duree = "";
-    private String materiel = "";
+    // Variables pour stocker les données reçues
+    private String reference, date, statut, priorite;
+    private String type, technicien, adresse, ville, action, duree, materiel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,99 +44,119 @@ public class DetailActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_detail);
 
+        // Liaison Vues
         tvDetails = findViewById(R.id.tvDetails);
         ImageButton btnBack = findViewById(R.id.btnBack);
         Button btnChangeStatus = findViewById(R.id.btnModifier);
-        vPriority = findViewById(R.id.vLeft); // garde ton id vLeft dans activity_detail
+        Button btnDelete = findViewById(R.id.btnDelete); // Si présent dans XML
+        vLeft = findViewById(R.id.vLeft);
 
         requestQueue = Volley.newRequestQueue(this);
 
-        reference = getIntent().getStringExtra("reference");
-        selectedDate = getIntent().getStringExtra("selectedDate");
+        // 1. Récupération de TOUTES les données envoyées par MainActivity
+        Intent i = getIntent();
+        reference = i.getStringExtra("reference");
+        date = i.getStringExtra("date");
+        statut = normalizeStatut(i.getStringExtra("statut"));
+        priorite = i.getStringExtra("priorite");
 
-        // ✅ récup depuis la liste pour cohérence d’affichage
-        String statutFromList = getIntent().getStringExtra("statut");
-        if (statutFromList != null && !statutFromList.trim().isEmpty()) {
-            statut = normalizeStatut(statutFromList.trim());
-        }
+        type = i.getStringExtra("type");
+        technicien = i.getStringExtra("technicien");
+        adresse = i.getStringExtra("adresse");
+        ville = i.getStringExtra("ville");
+        action = i.getStringExtra("action");
+        duree = i.getStringExtra("duree");
+        materiel = i.getStringExtra("materiel");
 
-        String prioriteFromList = getIntent().getStringExtra("priorite");
-        if (prioriteFromList != null && !prioriteFromList.trim().isEmpty()) {
-            priorite = prioriteFromList.trim();
-        }
-
-        // (optionnel) si tu passes aussi type/ville etc depuis la liste
-        String typeFromList = getIntent().getStringExtra("type");
-        if (typeFromList != null) type = typeFromList;
-
-        String villeFromList = getIntent().getStringExtra("ville");
-        if (villeFromList != null) ville = villeFromList;
-
-        if (reference == null || reference.trim().isEmpty()) {
-            Toast.makeText(this, "Erreur : référence manquante", Toast.LENGTH_LONG).show();
+        // Vérification sécurité
+        if (reference == null || reference.isEmpty()) {
+            Toast.makeText(this, "Erreur : Référence manquante", Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
 
+        // 2. Affichage initial
         refreshDisplay();
 
+        // 3. Actions Boutons
         btnChangeStatus.setText("Changer le statut");
         btnChangeStatus.setOnClickListener(v -> showStatusDialog());
-
         btnBack.setOnClickListener(v -> finish());
 
-        View deleteBtn = findViewById(R.id.btnDelete);
-        if (deleteBtn != null) {
-            deleteBtn.setOnClickListener(v -> confirmDelete());
+        if (btnDelete != null) {
+            btnDelete.setOnClickListener(v -> confirmDelete());
         }
     }
 
     private void refreshDisplay() {
-        // Couleur barre gauche selon priorité DB (Basse/Moyenne/Haute/Critique...)
-        String p = (priorite == null) ? "" : priorite.trim().toLowerCase(Locale.ROOT);
-        int color = Color.parseColor("#4CAF50"); // basse
-        if (p.contains("critique")) color = Color.parseColor("#D32F2F");
-        else if (p.contains("haute")) color = Color.parseColor("#F05A5A");
-        else if (p.contains("moy")) color = Color.parseColor("#F5A623");
-        vPriority.setBackgroundColor(color);
+        // A. Gestion de la couleur (Priorité)
+        String p = (priorite != null) ? priorite.toLowerCase(Locale.ROOT) : "basse";
+        int color = Color.parseColor("#4CAF50"); // Vert par défaut
 
-        String dateTxt = (selectedDate != null && !selectedDate.isEmpty()) ? selectedDate : "";
+        if (p.contains("critique")) color = Color.parseColor("#D32F2F"); // Rouge foncé
+        else if (p.contains("haute") || p.contains("haut")) color = Color.parseColor("#F05A5A"); // Rouge
+        else if (p.contains("moy")) color = Color.parseColor("#F5A623"); // Orange
 
-        String details =
-                "• Référence : " + reference + "\n" +
-                        (dateTxt.isEmpty() ? "" : "• Date : " + dateTxt + "\n") +
-                        (type.isEmpty() ? "" : "• Type : " + type + "\n") +
-                        "• Statut : " + statut + "\n" +
-                        "• Priorité : " + priorite + "\n\n" +
-                        (technicien.isEmpty() ? "" : "• Technicien : " + technicien + "\n") +
-                        ((adresse.isEmpty() && ville.isEmpty()) ? "" : "• Lieu : " + adresse + (ville.isEmpty() ? "" : " - " + ville) + "\n") +
-                        (action.isEmpty() ? "" : "\n• Action : " + action + "\n") +
-                        (duree.isEmpty() ? "" : "• Durée : " + duree + "\n") +
-                        (materiel.isEmpty() ? "" : "• Matériel : " + materiel + "\n");
+        vLeft.setBackgroundColor(color);
 
-        tvDetails.setText(details.trim());
+        // B. Construction du texte complet
+        StringBuilder sb = new StringBuilder();
+
+        // En-tête
+        sb.append("• Mission n° : ").append(reference).append("\n");
+        sb.append("• Date : ").append(checkNull(date)).append("\n");
+        sb.append("• Statut : ").append(statut).append("\n");
+        sb.append("• Priorité : ").append(checkNull(priorite)).append("\n\n");
+
+        // Détails Techniques
+        sb.append("• Type : ").append(checkNull(type)).append("\n");
+        sb.append("• Technicien : ").append(technicien != null && !technicien.isEmpty() ? technicien : "Non assigné").append("\n\n");
+
+        // Localisation
+        sb.append("📍 LIEU D'INTERVENTION\n");
+        String lieu = "";
+        if (adresse != null && !adresse.isEmpty()) lieu += adresse;
+        if (ville != null && !ville.isEmpty()) lieu += (lieu.isEmpty() ? "" : ", ") + ville;
+        sb.append(lieu.isEmpty() ? "Non renseigné" : lieu).append("\n\n");
+
+        // Actions & Matériel
+        sb.append("🔧 DÉTAILS TECHNIQUES\n");
+        sb.append("• Action : ").append(checkNull(action)).append("\n");
+        sb.append("• Durée estimée : ").append(checkNull(duree)).append("\n");
+        sb.append("• Matériel requis : ").append(checkNull(materiel));
+
+        // Affichage dans le TextView unique
+        tvDetails.setText(sb.toString());
     }
 
+    // Helper pour éviter d'afficher "null"
+    private String checkNull(String txt) {
+        return (txt == null || txt.isEmpty()) ? "-" : txt;
+    }
+
+    // Popup de modification
     private void showStatusDialog() {
-        // ✅ EXACTEMENT valeurs DB
         final String[] options = {"Planifiée", "En cours", "Terminée"};
 
-        int checked = 0;
-        if ("En cours".equalsIgnoreCase(statut)) checked = 1;
-        else if ("Terminée".equalsIgnoreCase(statut) || "Terminee".equalsIgnoreCase(statut)) checked = 2;
+        int checkedItem = 0;
+        if ("En cours".equalsIgnoreCase(statut)) checkedItem = 1;
+        else if ("Terminée".equalsIgnoreCase(statut) || "Terminee".equalsIgnoreCase(statut)) checkedItem = 2;
 
-        final int[] chosen = {checked};
+        final int[] selected = {checkedItem};
 
         new AlertDialog.Builder(this)
-                .setTitle("Changer le statut")
-                .setSingleChoiceItems(options, checked, (dialog, which) -> chosen[0] = which)
-                .setPositiveButton("Valider", (dialog, which) -> updateStatusOnServer(options[chosen[0]]))
+                .setTitle("Modifier le statut")
+                .setSingleChoiceItems(options, checkedItem, (dialog, which) -> selected[0] = which)
+                .setPositiveButton("Valider", (dialog, which) -> {
+                    updateStatusOnServer(options[selected[0]]);
+                })
                 .setNegativeButton("Annuler", null)
                 .show();
     }
 
+    // API Update
     private void updateStatusOnServer(String newStatusRaw) {
-        String newStatus = normalizeStatut(newStatusRaw);
+        String newStatus = normalizeStatut(newStatusRaw); // Converti "Terminé" -> "Terminée" si besoin
 
         try {
             JSONObject body = new JSONObject();
@@ -160,30 +168,37 @@ public class DetailActivity extends AppCompatActivity {
                     API_STATUS,
                     body,
                     response -> {
+                        // Succès
                         statut = newStatus;
                         refreshDisplay();
                         Toast.makeText(this, "Statut mis à jour ✅", Toast.LENGTH_SHORT).show();
 
-                        // ✅ prévenir MainActivity + fermer pour recharger la liste
-                        Intent data = new Intent();
-                        data.putExtra("changed", true);
-                        setResult(RESULT_OK, data);
-                        finish();
+                        // Force le rechargement dans MainActivity au retour
+                        Intent resultIntent = new Intent();
+                        resultIntent.putExtra("changed", true);
+                        setResult(RESULT_OK, resultIntent);
+
+                        // Optionnel : fermer la page pour revenir à la liste directement
+                        // finish();
                     },
-                    error -> showVolleyError("statut", error)
+                    error -> {
+                        String err = new String(error.networkResponse != null ? error.networkResponse.data : new byte[0]);
+                        Toast.makeText(this, "Erreur API: " + err, Toast.LENGTH_LONG).show();
+                    }
             );
 
             requestQueue.add(req);
+
         } catch (Exception e) {
             e.printStackTrace();
-            Toast.makeText(this, "Erreur JSON", Toast.LENGTH_LONG).show();
         }
     }
 
+    // API Delete
     private void confirmDelete() {
         new AlertDialog.Builder(this)
-                .setTitle("Supprimer l'intervention")
-                .setMessage("Cette action est définitive. Continuer ?")
+                .setTitle("Supprimer ?")
+                .setMessage("Cette action est irréversible.")
                 .setPositiveButton("Supprimer", (d, w) -> deleteOnServer())
                 .setNegativeButton("Annuler", null)
                 .show();
@@ -194,56 +209,26 @@ public class DetailActivity extends AppCompatActivity {
             JSONObject body = new JSONObject();
             body.put("reference", reference);
 
-            JsonObjectRequest req = new JsonObjectRequest(
-                    Request.Method.POST,
-                    API_DELETE,
-                    body,
+            JsonObjectRequest req = new JsonObjectRequest(Request.Method.POST, API_DELETE, body,
                     response -> {
-                        Toast.makeText(this, "Supprimé 🗑️", Toast.LENGTH_SHORT).show();
-                        Intent data = new Intent();
-                        data.putExtra("changed", true);
-                        setResult(RESULT_OK, data);
+                        Toast.makeText(this, "Mission supprimée 🗑️", Toast.LENGTH_SHORT).show();
+                        Intent resultIntent = new Intent();
+                        resultIntent.putExtra("changed", true);
+                        setResult(RESULT_OK, resultIntent);
                         finish();
                     },
-                    error -> showVolleyError("delete", error)
+                    error -> Toast.makeText(this, "Erreur suppression", Toast.LENGTH_SHORT).show()
             );
-
             requestQueue.add(req);
-        } catch (Exception e) {
-            e.printStackTrace();
-            Toast.makeText(this, "Erreur JSON", Toast.LENGTH_LONG).show();
-        }
+        } catch (Exception e) { e.printStackTrace(); }
     }
 
-    // ✅ Sécurise les anciennes valeurs envoyées (Planifié -> Planifiée, Terminé -> Terminée)
+    // Uniformisation des statuts (base de données vs affichage)
     private String normalizeStatut(String s) {
         if (s == null) return "Planifiée";
         String t = s.trim();
-
-        if (t.equalsIgnoreCase("Planifié")) return "Planifiée";
         if (t.equalsIgnoreCase("Terminé") || t.equalsIgnoreCase("Termine")) return "Terminée";
-        if (t.equalsIgnoreCase("Planifiée")) return "Planifiée";
-        if (t.equalsIgnoreCase("Terminée") || t.equalsIgnoreCase("Terminee")) return "Terminée";
-        if (t.equalsIgnoreCase("En cours")) return "En cours";
-
-        // fallback
+        if (t.equalsIgnoreCase("Planifié")) return "Planifiée";
         return t;
-    }
-
-    private void showVolleyError(String action, com.android.volley.VolleyError error) {
-        int code = (error.networkResponse != null) ? error.networkResponse.statusCode : -1;
-        String body = "";
-
-        if (error.networkResponse != null && error.networkResponse.data != null) {
-            try {
-                body = new String(error.networkResponse.data, StandardCharsets.UTF_8);
-            } catch (Exception ignored) {}
-        }
-
-        String msg = "Erreur API " + action + " (" + code + ")";
-        if (!body.isEmpty()) msg += " : " + body;
-
-        Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
-        error.printStackTrace();
     }
 }

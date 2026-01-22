@@ -94,17 +94,24 @@ public class MainActivity extends AppCompatActivity {
         adapter.setOnInterventionClickListener(intervention -> {
             Intent intent = new Intent(MainActivity.this, DetailActivity.class);
 
-            intent.putExtra("reference", intervention.idMission);  // référence DB
-            intent.putExtra("statut", intervention.statut);        // ✅ pour afficher pareil
-            intent.putExtra("priorite", intervention.prioriteStr); // ✅ si tu as ce champ, sinon intervention.prioriteText
+            // 1. Identifiants
+            intent.putExtra("reference", intervention.idMission);
+            intent.putExtra("date", intervention.dateIntervention.toString());
 
+            // 2. Statut & Priorité
+            intent.putExtra("statut", intervention.statut);
+            intent.putExtra("priorite", intervention.prioriteStr);
+
+            // 3. Infos complètes (C'est ce qui manquait !)
             intent.putExtra("type", intervention.type);
+            intent.putExtra("technicien", intervention.technicien); // ✅ Le technicien
+            intent.putExtra("adresse", intervention.adresse);
             intent.putExtra("ville", intervention.ville);
+            intent.putExtra("action", intervention.action);
+            intent.putExtra("duree", intervention.duree);
+            intent.putExtra("materiel", intervention.materiel);
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && currentDate != null) {
-                intent.putExtra("selectedDate", currentDate.toString());
-            }
-
+            // Lancement
             detailLauncher.launch(intent);
         });
 
