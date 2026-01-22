@@ -1,6 +1,8 @@
 package com.example.sae_302_jl_nr;
 
+import android.app.Activity;
 import android.app.DatePickerDialog;
+import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.widget.ImageButton;
@@ -8,6 +10,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -18,7 +23,9 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonArrayRequest;
+import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
+import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
 import org.json.JSONObject;
 
@@ -31,6 +38,7 @@ public class MainActivity extends AppCompatActivity {
 
     private TextView tvDate;
     private ImageButton btnPrev, btnNext;
+    private FloatingActionButton fabAdd;
 
     private RecyclerView rvInterventions;
     private InterventionAdapter adapter;
@@ -40,9 +48,14 @@ public class MainActivity extends AppCompatActivity {
     private final DateTimeFormatter formatter =
             DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.FRENCH);
 
-    // ✅ Mets ton IP ici (HTTPS via Nginx)
-    private static final String API_BASE = "http://51.38.176.17"; // ex: https://203.0.113.10
+    // ✅ API (cohérent avec tes fichiers VPS)
+    private static final String API_BASE = "http://51.38.176.17";
+    private static final String API_LIST   = API_BASE + "/interventions.php?date=";
+    private static final String API_CREATE = API_BASE + "/interventions_create.php";
+
     private RequestQueue requestQueue;
+
+    private ActivityResultLauncher<Intent> detailLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,32 +64,54 @@ public class MainActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
 
-        // Padding auto pour les barres système
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
 
-        // Vues du header date
         tvDate = findViewById(R.id.tvDate);
         btnPrev = findViewById(R.id.btnPrev);
         btnNext = findViewById(R.id.btnNext);
+        fabAdd = findViewById(R.id.fabAdd);
 
-        // RecyclerView
         rvInterventions = findViewById(R.id.rvInterventions);
         rvInterventions.setLayoutManager(new LinearLayoutManager(this));
         adapter = new InterventionAdapter();
         rvInterventions.setAdapter(adapter);
 
-        // Volley
         requestQueue = Volley.newRequestQueue(this);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        // ✅ retour DetailActivity => si changed=true => reload DB
+        detailLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                        boolean changed = result.getData().getBooleanExtra("changed", false);
+                        if (changed) reloadInterventionsForDay();
+                    }
+                }
+        );
 
+        // ✅ clic sur item => open détail
+        adapter.setOnInterventionClickListener(intervention -> {
+            Intent intent = new Intent(MainActivity.this, DetailActivity.class);
+
+            intent.putExtra("reference", intervention.idMission);
+
+
+            // bonus
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && currentDate != null) {
+                intent.putExtra("selectedDate", currentDate.toString());
+            }
+
+            detailLauncher.launch(intent);
+        });
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             currentDate = LocalDate.now();
             updateDateLabel();
-            reloadInterventionsForDay(); // ✅ charge depuis l'API
+            reloadInterventionsForDay();
 
             btnPrev.setOnClickListener(v -> {
                 currentDate = currentDate.minusDays(1);
@@ -90,10 +125,9 @@ public class MainActivity extends AppCompatActivity {
                 reloadInterventionsForDay();
             });
 
-            // Clic sur la date => DatePicker
             tvDate.setOnClickListener(v -> {
                 int year = currentDate.getYear();
-                int month = currentDate.getMonthValue() - 1; // DatePicker: 0-11
+                int month = currentDate.getMonthValue() - 1;
                 int day = currentDate.getDayOfMonth();
 
                 DatePickerDialog dialog = new DatePickerDialog(
@@ -105,9 +139,10 @@ public class MainActivity extends AppCompatActivity {
                         },
                         year, month, day
                 );
-
                 dialog.show();
             });
+
+            fabAdd.setOnClickListener(v -> createInterventionQuick(currentDate));
 
         } else {
             tvDate.setText("Date");
@@ -121,15 +156,10 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * ✅ Remplace ton filtre local : ici on récupère depuis l'API par date
-     * Endpoint attendu : GET /interventions?date=YYYY-MM-DD
-     * Retour attendu : JSON array [...]
-     */
     private void reloadInterventionsForDay() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || currentDate == null) return;
 
-        String url = API_BASE + "/interventions?date=" + currentDate.toString();
+        String url = API_LIST + currentDate;
 
         JsonArrayRequest request = new JsonArrayRequest(
                 Request.Method.GET,
@@ -142,17 +172,16 @@ public class MainActivity extends AppCompatActivity {
                         JSONObject o = response.optJSONObject(idx);
                         if (o == null) continue;
 
-                        // Champs JSON (depuis ta DB)
+                        // JSON DB
                         String reference = o.optString("reference", "");
                         String dateStr = o.optString("date_intervention", currentDate.toString());
+                        if (dateStr.contains(" ")) dateStr = dateStr.split(" ")[0];
 
                         String type = o.optString("type_intervention", "");
-                        String priorite = o.optString("priorite", "Basse");
+                        String prioriteStr = o.optString("priorite", "Basse");
                         String technicien = o.optString("technicien", "");
-
                         String adresse = o.optString("adresse", "");
                         String ville = o.optString("ville", "");
-
                         String action = o.optString("action_realisee", "");
                         String duree = o.optString("duree", "");
                         String materiel = o.optString("materiel", "");
@@ -160,15 +189,16 @@ public class MainActivity extends AppCompatActivity {
 
                         LocalDate d = LocalDate.parse(dateStr);
 
-                        // libellé court (optionnel, tu peux laisser vide)
-                        String libelleCourt = d.getDayOfMonth() + " " + d.getMonth().getDisplayName(java.time.format.TextStyle.FULL, Locale.FRENCH);
+                        String libelleCourt = d.getDayOfMonth() + " " +
+                                d.getMonth().getDisplayName(java.time.format.TextStyle.FULL, Locale.FRENCH);
 
+                        // ✅ on crée l'objet Intervention comme TU le faisais déjà dans ton MainActivity
                         Intervention in = new Intervention(
                                 reference,
                                 libelleCourt,
                                 d,
                                 type,
-                                priorite,
+                                prioriteStr,
                                 technicien,
                                 adresse,
                                 ville,
@@ -178,6 +208,16 @@ public class MainActivity extends AppCompatActivity {
                                 statut
                         );
 
+                        // ✅ IMPORTANT : ton DetailActivity attend idMission => on map reference -> idMission
+                        in.idMission = reference;
+
+                        // ✅ priorité int pour la couleur (adapter utilise i.priorite)
+                        int prioriteInt = 1;
+                        String p = prioriteStr.toLowerCase(Locale.ROOT);
+                        if (p.contains("haut")) prioriteInt = 3;
+                        else if (p.contains("moy")) prioriteInt = 2;
+                        in.priorite = prioriteInt;
+
                         list.add(in);
                     }
 
@@ -186,10 +226,50 @@ public class MainActivity extends AppCompatActivity {
                 error -> {
                     error.printStackTrace();
                     adapter.setData(new ArrayList<>());
-                    Toast.makeText(this, "Erreur API (SSL/URL ?) : " + error.getMessage(), Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Erreur API : " + error.getMessage(), Toast.LENGTH_LONG).show();
                 }
         );
 
         requestQueue.add(request);
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.O)
+    private void createInterventionQuick(LocalDate date) {
+        try {
+            String ref = "REF" + System.currentTimeMillis();
+
+            JSONObject body = new JSONObject();
+            body.put("reference", ref);
+            body.put("date_intervention", date.toString());
+            body.put("type_intervention", "SAV");
+            body.put("priorite", "Basse");
+            body.put("technicien", "");
+            body.put("adresse", "");
+            body.put("ville", "");
+            body.put("action_realisee", "");
+            body.put("duree", "");
+            body.put("materiel", "");
+            body.put("statut", "Planifiée");
+
+            JsonObjectRequest req = new JsonObjectRequest(
+                    Request.Method.POST,
+                    API_CREATE,
+                    body,
+                    response -> {
+                        Toast.makeText(this, "Intervention ajoutée ✅", Toast.LENGTH_SHORT).show();
+                        reloadInterventionsForDay();
+                    },
+                    error -> {
+                        error.printStackTrace();
+                        Toast.makeText(this, "Erreur ajout : " + error.getMessage(), Toast.LENGTH_LONG).show();
+                    }
+            );
+
+            requestQueue.add(req);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            Toast.makeText(this, "Erreur création", Toast.LENGTH_LONG).show();
+        }
     }
 }

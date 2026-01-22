@@ -89,7 +89,7 @@
                 app:layout_constraintStart_toEndOf="@id/vLeft"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintBottom_toTopOf="@id/btnModifier">
+                app:layout_constraintBottom_toTopOf="@id/llActions">
 
                 <TextView
                     android:id="@+id/tvDetails"
@@ -102,19 +102,41 @@
                     tools:text="• Mission n°15485&#10;• Date : 17 janvier 2026&#10;• Type de mission : SAV Problème fibre" />
             </ScrollView>
 
-            <Button
-                android:id="@+id/btnModifier"
-                android:layout_width="170dp"
-                android:layout_height="42dp"
+            <!-- Zone boutons (pas de constraint weight) -->
+            <LinearLayout
+                android:id="@+id/llActions"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
                 android:layout_marginTop="10dp"
-                android:background="@drawable/bg_button_cyan"
-                android:text="Modifier"
-                android:textAllCaps="false"
-                android:textStyle="bold"
-                android:textColor="#08313A"
-                app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintEnd_toEndOf="parent" />
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintBottom_toBottomOf="parent">
+
+                <Button
+                    android:id="@+id/btnModifier"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_button_cyan"
+                    android:text="Changer le statut"
+                    android:textAllCaps="false"
+                    android:textStyle="bold"
+                    android:textColor="#08313A"
+                    android:layout_marginEnd="8dp"/>
+
+                <Button
+                    android:id="@+id/btnDelete"
+                    android:layout_width="0dp"
+                    android:layout_height="42dp"
+                    android:layout_weight="1"
+                    android:text="Delete"
+                    android:textAllCaps="false"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:background="#D32F2F"/>
+            </LinearLayout>
 
         </androidx.constraintlayout.widget.ConstraintLayout>
 

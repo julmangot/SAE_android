@@ -1,6 +1,5 @@
 package com.example.sae_302_jl_nr;
 
-import android.content.Intent;
 import android.graphics.Color;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -14,6 +13,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapter.ViewHolder> {
+
+    public interface OnInterventionClickListener {
+        void onInterventionClick(Intervention intervention);
+    }
+
+    private OnInterventionClickListener clickListener;
+
+    public void setOnInterventionClickListener(OnInterventionClickListener l) {
+        this.clickListener = l;
+    }
 
     private List<Intervention> data = new ArrayList<>();
 
@@ -34,11 +43,10 @@ public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapte
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         Intervention i = data.get(position);
 
-        // Affichage dynamique
         holder.tvLine1.setText(i.getTitreCarte());
         holder.tvLine2.setText(i.getSousTitreCarte());
 
-        // Couleur priorité
+        // ✅ priorité int (comme ton ancien code)
         switch (i.priorite) {
             case 3:
                 holder.vPriority.setBackgroundColor(Color.parseColor("#F05A5A"));
@@ -51,11 +59,8 @@ public class InterventionAdapter extends RecyclerView.Adapter<InterventionAdapte
                 break;
         }
 
-        // Clic : on envoie juste l'ID pour récupérer le vrai objet plus tard
         holder.itemView.setOnClickListener(v -> {
-            Intent intent = new Intent(v.getContext(), DetailActivity.class);
-            intent.putExtra(DetailActivity.EXTRA_ID_MISSION, i.idMission);
-            v.getContext().startActivity(intent);
+            if (clickListener != null) clickListener.onInterventionClick(i);
         });
     }
 
