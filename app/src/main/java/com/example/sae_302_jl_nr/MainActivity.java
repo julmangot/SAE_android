@@ -5,6 +5,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.widget.ImageButton;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
@@ -14,11 +15,16 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.JsonArrayRequest;
+import com.android.volley.toolbox.Volley;
+
+import org.json.JSONObject;
+
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
@@ -34,7 +40,9 @@ public class MainActivity extends AppCompatActivity {
     private final DateTimeFormatter formatter =
             DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.FRENCH);
 
-    private final List<Intervention> allInterventions = new ArrayList<>();
+    // ✅ Mets ton IP ici (HTTPS via Nginx)
+    private static final String API_BASE = "http://51.38.176.17"; // ex: https://203.0.113.10
+    private RequestQueue requestQueue;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,30 +69,28 @@ public class MainActivity extends AppCompatActivity {
         adapter = new InterventionAdapter();
         rvInterventions.setAdapter(adapter);
 
-        // Date initiale + data
+        // Volley
+        requestQueue = Volley.newRequestQueue(this);
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
 
             currentDate = LocalDate.now();
+            updateDateLabel();
+            reloadInterventionsForDay(); // ✅ charge depuis l'API
 
-            initAllData();               // charge les interventions une seule fois
-            updateDateLabel();           // affiche la date
-            reloadInterventionsForDay(); // affiche la liste du jour
-
-            // Bouton jour précédent
             btnPrev.setOnClickListener(v -> {
                 currentDate = currentDate.minusDays(1);
                 updateDateLabel();
                 reloadInterventionsForDay();
             });
 
-            // Bouton jour suivant
             btnNext.setOnClickListener(v -> {
                 currentDate = currentDate.plusDays(1);
                 updateDateLabel();
                 reloadInterventionsForDay();
             });
 
-            // ✅ Clic sur la date => DatePicker
+            // Clic sur la date => DatePicker
             tvDate.setOnClickListener(v -> {
                 int year = currentDate.getYear();
                 int month = currentDate.getMonthValue() - 1; // DatePicker: 0-11
@@ -99,7 +105,6 @@ public class MainActivity extends AppCompatActivity {
                         },
                         year, month, day
                 );
-
 
                 dialog.show();
             });
@@ -116,56 +121,75 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void initAllData() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-
-        allInterventions.clear();
-
-        // Semaine du 19 au 25 Janvier
-        allInterventions.add(new Intervention("15480", "19 Janvier",
-                LocalDate.of(2026, 1, 19),
-                "SAV Fibre", "Critique", "Medhi Ralouf",
-                "10 rue Paris", "Rennes", "Soudure", "1h", "Soudeuse", "Planifiée"));
-
-        allInterventions.add(new Intervention("15481", "20 Janvier",
-                LocalDate.of(2026, 1, 20),
-                "Installation", "Basse", "Julie Bois",
-                "2 av. Briand", "Rennes", "Pose Box", "45min", "Modem", "Terminée"));
-
-        // JOUR TEST : 21 Janvier (3 interventions)
-        allInterventions.add(new Intervention("15485", "21 Janvier",
-                LocalDate.of(2026, 1, 21),
-                "SAV Problème fibre", "Critique Haute", "Medhi Ralouf",
-                "10 rue de Paris", "Rennes", "Test de continuité", "1h30", "Soudeuse optique", "Planifiée"));
-
-        allInterventions.add(new Intervention("15486", "21 Janvier",
-                LocalDate.of(2026, 1, 21),
-                "Raccordement", "Moyenne", "Martin Delavega",
-                "Zone Sud", "Rennes", "Tirage", "2h", "Echelle", "En cours"));
-
-        allInterventions.add(new Intervention("15487", "21 Janvier",
-                LocalDate.of(2026, 1, 21),
-                "SAV Fibre", "Haute", "Julie Bois",
-                "Rue de Fougères", "Rennes", "Soudure", "1h", "Soudeuse", "Planifiée"));
-
-        // Autres jours
-        allInterventions.add(new Intervention("15490", "22 Janvier",
-                LocalDate.of(2026, 1, 22),
-                "Audit", "Basse", "Thomas Le Gall",
-                "Mairie", "Dinan", "Mesures", "3h", "Tablette", "Planifiée"));
-    }
-
+    /**
+     * ✅ Remplace ton filtre local : ici on récupère depuis l'API par date
+     * Endpoint attendu : GET /interventions?date=YYYY-MM-DD
+     * Retour attendu : JSON array [...]
+     */
     private void reloadInterventionsForDay() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || currentDate == null) return;
 
-        List<Intervention> filteredList = new ArrayList<>();
-        for (Intervention i : allInterventions) {
-            // ⚠️ adapte si ton champ date n'est pas public
-            if (i != null && i.date != null && i.date.equals(currentDate)) {
-                filteredList.add(i);
-            }
-        }
+        String url = API_BASE + "/interventions?date=" + currentDate.toString();
 
-        adapter.setData(filteredList);
+        JsonArrayRequest request = new JsonArrayRequest(
+                Request.Method.GET,
+                url,
+                null,
+                response -> {
+                    ArrayList<Intervention> list = new ArrayList<>();
+
+                    for (int idx = 0; idx < response.length(); idx++) {
+                        JSONObject o = response.optJSONObject(idx);
+                        if (o == null) continue;
+
+                        // Champs JSON (depuis ta DB)
+                        String reference = o.optString("reference", "");
+                        String dateStr = o.optString("date_intervention", currentDate.toString());
+
+                        String type = o.optString("type_intervention", "");
+                        String priorite = o.optString("priorite", "Basse");
+                        String technicien = o.optString("technicien", "");
+
+                        String adresse = o.optString("adresse", "");
+                        String ville = o.optString("ville", "");
+
+                        String action = o.optString("action_realisee", "");
+                        String duree = o.optString("duree", "");
+                        String materiel = o.optString("materiel", "");
+                        String statut = o.optString("statut", "");
+
+                        LocalDate d = LocalDate.parse(dateStr);
+
+                        // libellé court (optionnel, tu peux laisser vide)
+                        String libelleCourt = d.getDayOfMonth() + " " + d.getMonth().getDisplayName(java.time.format.TextStyle.FULL, Locale.FRENCH);
+
+                        Intervention in = new Intervention(
+                                reference,
+                                libelleCourt,
+                                d,
+                                type,
+                                priorite,
+                                technicien,
+                                adresse,
+                                ville,
+                                action,
+                                duree,
+                                materiel,
+                                statut
+                        );
+
+                        list.add(in);
+                    }
+
+                    adapter.setData(list);
+                },
+                error -> {
+                    error.printStackTrace();
+                    adapter.setData(new ArrayList<>());
+                    Toast.makeText(this, "Erreur API (SSL/URL ?) : " + error.getMessage(), Toast.LENGTH_LONG).show();
+                }
+        );
+
+        requestQueue.add(request);
     }
 }
