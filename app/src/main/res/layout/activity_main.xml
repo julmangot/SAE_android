@@ -42,10 +42,13 @@
             android:textColor="#111111"
             android:textSize="16sp"
             android:textStyle="bold"
+            android:clickable="true"
+            android:focusable="true"
             app:layout_constraintEnd_toStartOf="@+id/btnNext"
             app:layout_constraintStart_toEndOf="@+id/btnPrev"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent" />
+
 
         <ImageButton
             android:id="@+id/btnNext"

@@ -1,5 +1,6 @@
 package com.example.sae_302_jl_nr;
 
+import android.app.DatePickerDialog;
 import android.os.Build;
 import android.os.Bundle;
 import android.widget.ImageButton;
@@ -16,6 +17,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 import java.util.Locale;
 
@@ -61,22 +63,45 @@ public class MainActivity extends AppCompatActivity {
 
         // Date initiale + data
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+
             currentDate = LocalDate.now();
 
-            initAllData();          // charge les interventions une seule fois
-            updateDateLabel();      // affiche la date
+            initAllData();               // charge les interventions une seule fois
+            updateDateLabel();           // affiche la date
             reloadInterventionsForDay(); // affiche la liste du jour
 
+            // Bouton jour précédent
             btnPrev.setOnClickListener(v -> {
                 currentDate = currentDate.minusDays(1);
                 updateDateLabel();
                 reloadInterventionsForDay();
             });
 
+            // Bouton jour suivant
             btnNext.setOnClickListener(v -> {
                 currentDate = currentDate.plusDays(1);
                 updateDateLabel();
                 reloadInterventionsForDay();
+            });
+
+            // ✅ Clic sur la date => DatePicker
+            tvDate.setOnClickListener(v -> {
+                int year = currentDate.getYear();
+                int month = currentDate.getMonthValue() - 1; // DatePicker: 0-11
+                int day = currentDate.getDayOfMonth();
+
+                DatePickerDialog dialog = new DatePickerDialog(
+                        MainActivity.this,
+                        (view, selectedYear, selectedMonth, selectedDay) -> {
+                            currentDate = LocalDate.of(selectedYear, selectedMonth + 1, selectedDay);
+                            updateDateLabel();
+                            reloadInterventionsForDay();
+                        },
+                        year, month, day
+                );
+
+
+                dialog.show();
             });
 
         } else {
@@ -135,6 +160,7 @@ public class MainActivity extends AppCompatActivity {
 
         List<Intervention> filteredList = new ArrayList<>();
         for (Intervention i : allInterventions) {
+            // ⚠️ adapte si ton champ date n'est pas public
             if (i != null && i.date != null && i.date.equals(currentDate)) {
                 filteredList.add(i);
             }
