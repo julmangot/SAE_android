@@ -11,9 +11,18 @@ import android.view.ViewConfiguration;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.RequiresApi;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.Volley;
+
+import org.json.JSONObject;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -21,11 +30,21 @@ import java.util.Locale;
 
 public class DetailActivity extends AppCompatActivity {
 
+    // ===== API =====
+    private static final String API_BASE = "http://51.38.176.17";
+    // ✅ Mets ici TES vrais noms de fichiers PHP
+    private static final String API_UPDATE_STATUT = API_BASE + "/interventions_status.php";
+    private static final String API_DELETE        = API_BASE + "/interventions_delete.php";
+
+    private RequestQueue queue;
+
     // ===== UI =====
     private View root;
-    private ImageButton btnBack;
+    private View bottomActionContainer;
 
+    private ImageButton btnBack;
     private View vStatusColor;
+
     private TextView tvTypeTitle, tvReference, tvStatutBadge, tvPrioriteBadge;
     private TextView tvDate, tvTechnicien, tvAdresse;
     private TextView tvAction, tvDuree, tvMateriel;
@@ -34,13 +53,21 @@ public class DetailActivity extends AppCompatActivity {
 
     // ===== Data =====
     private String reference = "";
-    private LocalDate dateIntervention = null;
+    private LocalDate dateIntervention;
 
-    // ===== Swipe-back "partout" (gauche -> droite) =====
+    private String currentStatut = "Planifiée";
+    private String currentPriorite = "Basse";
+
+    // ===== Swipe back =====
     private float downX = 0f, downY = 0f;
     private boolean trackingBack = false;
-    private int finishThresholdPx;     // distance pour valider le retour
-    private int touchSlopPx;           // évite déclenchement par petits mouvements
+    private boolean ignoreSwipeThisGesture = false;
+
+    private int finishThresholdPx;
+    private int touchSlopPx;
+
+    // ✅ empêche le swipe de te faire quitter pendant une requête réseau
+    private boolean networkBusy = false;
 
     @RequiresApi(api = Build.VERSION_CODES.O)
     private final DateTimeFormatter dateFormatter =
@@ -52,10 +79,13 @@ public class DetailActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_detail);
 
-        // Root (tu as ajouté android:id="@+id/rootDetail" dans ton XML)
-        root = findViewById(R.id.rootDetail);
+        queue = Volley.newRequestQueue(this);
 
-        // Bind views
+        // Root + zone boutons
+        root = findViewById(R.id.rootDetail);
+        bottomActionContainer = findViewById(R.id.bottomActionContainer);
+
+        // Bind UI
         btnBack = findViewById(R.id.btnBack);
 
         vStatusColor = findViewById(R.id.vStatusColor);
@@ -75,72 +105,232 @@ public class DetailActivity extends AppCompatActivity {
         btnModifier = findViewById(R.id.btnModifier);
         btnDelete = findViewById(R.id.btnDelete);
 
-        // Back button
-        if (btnBack != null) btnBack.setOnClickListener(v -> finish());
-
-        // Setup swipe "partout"
-        setupGlobalSwipeBack();
-
-        // Fill UI from intent
-        readExtrasAndFillUI();
-
-        // Bottom buttons (placeholder -> à brancher sur tes APIs)
-        setupBottomButtons();
-    }
-
-    private void setupGlobalSwipeBack() {
-        if (root == null) return;
-
+        // Seuils swipe
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        finishThresholdPx = (int) (110 * dm.density); // 110dp
+        finishThresholdPx = (int) (110 * dm.density);
         touchSlopPx = ViewConfiguration.get(this).getScaledTouchSlop();
 
-        root.setOnTouchListener((v, event) -> {
-            switch (event.getActionMasked()) {
+        // Back button
+        btnBack.setOnClickListener(v -> finish());
 
+        // Remplir UI
+        readExtrasAndFillUI();
+
+        // Boutons -> API
+        setupButtons();
+
+        // Swipe retour sur le reste de l'écran (pas sur zone boutons)
+        setupSwipeBackExcludingBottom();
+    }
+
+    private void setupButtons() {
+        // ✅ Les clics doivent toujours passer : pas de swipe sur bottomActionContainer
+        btnModifier.setOnClickListener(v -> showStatutDialog());
+        btnDelete.setOnClickListener(v -> showDeleteConfirm());
+    }
+
+    private void showStatutDialog() {
+        final String[] statuts = new String[]{"Planifiée", "En cours", "Terminée"};
+
+        int tmpChecked = 0;
+        for (int i = 0; i < statuts.length; i++) {
+            if (statuts[i].equalsIgnoreCase(currentStatut)) {
+                tmpChecked = i;
+                break;
+            }
+        }
+        final int checkedIndex = tmpChecked;
+
+        new AlertDialog.Builder(this)
+                .setTitle("Changer le statut")
+                .setSingleChoiceItems(statuts, checkedIndex, null)
+                .setNegativeButton("Annuler", null)
+                .setPositiveButton("OK", (dialog, which) -> {
+                    AlertDialog ad = (AlertDialog) dialog;
+                    int pos = ad.getListView().getCheckedItemPosition();
+                    if (pos < 0) pos = checkedIndex;
+
+                    String newStatut = statuts[pos];
+
+                    // ✅ appel serveur
+                    updateStatutOnServer(newStatut);
+                })
+                .show();
+    }
+
+    private void showDeleteConfirm() {
+        new AlertDialog.Builder(this)
+                .setTitle("Supprimer")
+                .setMessage("Tu veux vraiment supprimer cette intervention ?")
+                .setNegativeButton("Annuler", null)
+                .setPositiveButton("Supprimer", (dialog, which) -> deleteOnServer())
+                .show();
+    }
+
+    private void setButtonsEnabled(boolean enabled) {
+        if (btnModifier != null) btnModifier.setEnabled(enabled);
+        if (btnDelete != null) btnDelete.setEnabled(enabled);
+        if (btnBack != null) btnBack.setEnabled(enabled);
+    }
+
+    private void updateStatutOnServer(String newStatut) {
+        if (reference.isEmpty()) {
+            Toast.makeText(this, "Référence manquante", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        networkBusy = true;
+        setButtonsEnabled(false);
+
+        try {
+            JSONObject body = new JSONObject();
+            body.put("reference", reference);
+            body.put("statut", newStatut);
+
+            JsonObjectRequest req = new JsonObjectRequest(
+                    Request.Method.POST,
+                    API_UPDATE_STATUT,
+                    body,
+                    response -> {
+                        networkBusy = false;
+                        setButtonsEnabled(true);
+
+                        // ✅ Mise à jour UI
+                        currentStatut = response.optString("statut_saved", newStatut);
+                        tvStatutBadge.setText(currentStatut);
+                        applyStatutBadgeStyle(currentStatut);
+
+                        // ✅ Prévenir MainActivity de recharger
+                        Intent data = new Intent();
+                        data.putExtra("changed", true);
+                        setResult(RESULT_OK, data);
+
+                        Toast.makeText(this, "Statut sauvegardé ✅", Toast.LENGTH_SHORT).show();
+                    },
+                    error -> {
+                        networkBusy = false;
+                        setButtonsEnabled(true);
+
+                        error.printStackTrace();
+                        Toast.makeText(this, "Erreur update statut", Toast.LENGTH_LONG).show();
+                    }
+            );
+
+            queue.add(req);
+
+        } catch (Exception e) {
+            networkBusy = false;
+            setButtonsEnabled(true);
+
+            e.printStackTrace();
+            Toast.makeText(this, "Erreur JSON", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void deleteOnServer() {
+        if (reference.isEmpty()) {
+            Toast.makeText(this, "Référence manquante", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        networkBusy = true;
+        setButtonsEnabled(false);
+
+        try {
+            JSONObject body = new JSONObject();
+            body.put("reference", reference);
+
+            JsonObjectRequest req = new JsonObjectRequest(
+                    Request.Method.POST,
+                    API_DELETE,
+                    body,
+                    response -> {
+                        networkBusy = false;
+                        setButtonsEnabled(true);
+
+                        Intent data = new Intent();
+                        data.putExtra("changed", true);
+                        setResult(RESULT_OK, data);
+
+                        Toast.makeText(this, "Supprimée ✅", Toast.LENGTH_SHORT).show();
+                        finish();
+                    },
+                    error -> {
+                        networkBusy = false;
+                        setButtonsEnabled(true);
+
+                        error.printStackTrace();
+                        Toast.makeText(this, "Erreur suppression", Toast.LENGTH_LONG).show();
+                    }
+            );
+
+            queue.add(req);
+
+        } catch (Exception e) {
+            networkBusy = false;
+            setButtonsEnabled(true);
+
+            e.printStackTrace();
+            Toast.makeText(this, "Erreur JSON", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /**
+     * Swipe retour sur le reste de la page.
+     * IMPORTANT :
+     * - si on est dans bottomActionContainer -> on ignore (boutons cliquables)
+     * - si networkBusy -> on ignore (évite retour avant synchro)
+     */
+    private void setupSwipeBackExcludingBottom() {
+        if (root == null) return;
+
+        root.setOnTouchListener((v, event) -> {
+            if (networkBusy) return false;
+
+            switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN: {
                     downX = event.getX();
                     downY = event.getY();
                     trackingBack = false;
 
-                    // IMPORTANT : on ne consomme pas encore, sinon scroll vertical cassé
-                    return false;
+                    ignoreSwipeThisGesture =
+                            (bottomActionContainer != null) && isTouchInsideView(event, bottomActionContainer);
+
+                    return false; // laisse passer les clicks
                 }
 
                 case MotionEvent.ACTION_MOVE: {
+                    if (ignoreSwipeThisGesture) return false;
+
                     float dx = event.getX() - downX;
                     float dy = event.getY() - downY;
 
-                    // tant que c'est un petit mouvement -> laisse scroller
-                    if (Math.abs(dx) < touchSlopPx && Math.abs(dy) < touchSlopPx) {
-                        return false;
-                    }
+                    // pas assez bougé -> click/scroll
+                    if (Math.abs(dx) < touchSlopPx && Math.abs(dy) < touchSlopPx) return false;
 
-                    // Si on n'a pas encore "pris" le gesture :
+                    // vertical -> scroll normal
+                    if (!trackingBack && Math.abs(dy) > Math.abs(dx)) return false;
+
+                    // prendre seulement swipe gauche->droite
                     if (!trackingBack) {
-                        // si l'utilisateur part vertical -> laisser le ScrollView gérer
-                        if (Math.abs(dy) > Math.abs(dx)) {
-                            return false;
-                        }
-                        // c'est horizontal -> on prend le contrôle
+                        if (dx <= 0) return false;
                         trackingBack = true;
                         v.getParent().requestDisallowInterceptTouchEvent(true);
                     }
 
-                    // trackingBack = true : on anime l'écran avec le doigt
-                    if (dx < 0) dx = 0; // on ignore swipe droite->gauche
+                    if (dx < 0) dx = 0;
                     v.setTranslationX(dx);
                     return true;
                 }
 
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL: {
+                    if (ignoreSwipeThisGesture) return false;
                     if (!trackingBack) return false;
 
                     float dx = event.getX() - downX;
 
                     if (dx > finishThresholdPx) {
-                        // retour validé
                         v.animate()
                                 .translationX(v.getWidth())
                                 .setDuration(180)
@@ -150,11 +340,7 @@ public class DetailActivity extends AppCompatActivity {
                                 })
                                 .start();
                     } else {
-                        // annule -> revient en place
-                        v.animate()
-                                .translationX(0)
-                                .setDuration(180)
-                                .start();
+                        v.animate().translationX(0).setDuration(180).start();
                     }
 
                     trackingBack = false;
@@ -165,6 +351,17 @@ public class DetailActivity extends AppCompatActivity {
         });
     }
 
+    private boolean isTouchInsideView(MotionEvent event, View view) {
+        int[] loc = new int[2];
+        view.getLocationOnScreen(loc);
+
+        float x = event.getRawX();
+        float y = event.getRawY();
+
+        return x >= loc[0] && x <= (loc[0] + view.getWidth())
+                && y >= loc[1] && y <= (loc[1] + view.getHeight());
+    }
+
     @RequiresApi(api = Build.VERSION_CODES.O)
     private void readExtrasAndFillUI() {
         Intent intent = getIntent();
@@ -172,8 +369,8 @@ public class DetailActivity extends AppCompatActivity {
         reference = safe(intent.getStringExtra("reference"));
         String dateStr = intent.getStringExtra("date");
 
-        String statut = safeOrDefault(intent.getStringExtra("statut"), "Planifiée");
-        String priorite = safeOrDefault(intent.getStringExtra("priorite"), "Basse");
+        currentStatut = safeOrDefault(intent.getStringExtra("statut"), "Planifiée");
+        currentPriorite = safeOrDefault(intent.getStringExtra("priorite"), "Basse");
 
         String type = safeOrDefault(intent.getStringExtra("type"), "Intervention");
         String technicien = safe(intent.getStringExtra("technicien"));
@@ -185,45 +382,24 @@ public class DetailActivity extends AppCompatActivity {
 
         dateIntervention = parseDateOrNow(dateStr);
 
-        if (tvTypeTitle != null) tvTypeTitle.setText(type.isEmpty() ? "Intervention" : type);
-        if (tvReference != null) tvReference.setText(reference.isEmpty() ? "—" : reference);
+        tvTypeTitle.setText(type.isEmpty() ? "Intervention" : type);
+        tvReference.setText(reference.isEmpty() ? "—" : reference);
 
-        if (tvStatutBadge != null) tvStatutBadge.setText(statut);
-        if (tvPrioriteBadge != null) tvPrioriteBadge.setText("Priorité " + priorite);
+        tvStatutBadge.setText(currentStatut);
+        tvPrioriteBadge.setText("Priorité " + currentPriorite);
 
-        if (tvDate != null) tvDate.setText(dateIntervention.format(dateFormatter));
-        if (tvTechnicien != null) tvTechnicien.setText(technicien.isEmpty() ? "—" : technicien);
+        tvDate.setText(dateIntervention.format(dateFormatter));
+        tvTechnicien.setText(technicien.isEmpty() ? "—" : technicien);
 
         String adrFull = (adresse + (ville.isEmpty() ? "" : ", " + ville)).trim();
-        if (tvAdresse != null) tvAdresse.setText(adrFull.isEmpty() ? "—" : adrFull);
+        tvAdresse.setText(adrFull.isEmpty() ? "—" : adrFull);
 
-        if (tvAction != null) tvAction.setText(action.isEmpty() ? "—" : action);
-        if (tvDuree != null) tvDuree.setText(duree.isEmpty() ? "—" : duree);
-        if (tvMateriel != null) tvMateriel.setText(materiel.isEmpty() ? "—" : materiel);
+        tvAction.setText(action.isEmpty() ? "—" : action);
+        tvDuree.setText(duree.isEmpty() ? "—" : duree);
+        tvMateriel.setText(materiel.isEmpty() ? "—" : materiel);
 
-        applyPriorityColor(priorite);
-        applyStatutBadgeStyle(statut);
-    }
-
-    private void setupBottomButtons() {
-        // ⚠️ placeholder : remplace par tes appels API statut/delete
-        if (btnModifier != null) {
-            btnModifier.setOnClickListener(v -> {
-                Intent data = new Intent();
-                data.putExtra("changed", true);
-                setResult(RESULT_OK, data);
-                // tu peux rester sur la page si tu veux
-            });
-        }
-
-        if (btnDelete != null) {
-            btnDelete.setOnClickListener(v -> {
-                Intent data = new Intent();
-                data.putExtra("changed", true);
-                setResult(RESULT_OK, data);
-                finish();
-            });
-        }
+        applyPriorityColor(currentPriorite);
+        applyStatutBadgeStyle(currentStatut);
     }
 
     private void applyPriorityColor(String prioriteStr) {
@@ -231,7 +407,7 @@ public class DetailActivity extends AppCompatActivity {
 
         String p = (prioriteStr == null) ? "" : prioriteStr.toLowerCase(Locale.ROOT);
 
-        int color = Color.parseColor("#4CAF50"); // basse
+        int color = Color.parseColor("#4CAF50");
         if (p.contains("critique")) color = Color.parseColor("#D32F2F");
         else if (p.contains("haute") || p.contains("haut")) color = Color.parseColor("#F05A5A");
         else if (p.contains("moy")) color = Color.parseColor("#F5A623");
@@ -256,12 +432,8 @@ public class DetailActivity extends AppCompatActivity {
         }
     }
 
-    // ===== Utils =====
-
-    private static String safe(String s) {
-        return (s == null) ? "" : s.trim();
-    }
-
+    // Utils
+    private static String safe(String s) { return (s == null) ? "" : s.trim(); }
     private static String safeOrDefault(String s, String def) {
         String v = safe(s);
         return v.isEmpty() ? def : v;
