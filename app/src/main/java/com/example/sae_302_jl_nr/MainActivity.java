@@ -53,7 +53,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String API_CREATE = API_BASE + "/interventions_create.php";
 
     private RequestQueue requestQueue;
-
     private ActivityResultLauncher<Intent> detailLauncher;
 
     @Override
@@ -94,27 +93,22 @@ public class MainActivity extends AppCompatActivity {
         adapter.setOnInterventionClickListener(intervention -> {
             Intent intent = new Intent(MainActivity.this, DetailActivity.class);
 
-            // 1. Identifiants
             intent.putExtra("reference", intervention.idMission);
             intent.putExtra("date", intervention.dateIntervention.toString());
 
-            // 2. Statut & Priorité
             intent.putExtra("statut", intervention.statut);
             intent.putExtra("priorite", intervention.prioriteStr);
 
-            // 3. Infos complètes (C'est ce qui manquait !)
             intent.putExtra("type", intervention.type);
-            intent.putExtra("technicien", intervention.technicien); // ✅ Le technicien
+            intent.putExtra("technicien", intervention.technicien);
             intent.putExtra("adresse", intervention.adresse);
             intent.putExtra("ville", intervention.ville);
             intent.putExtra("action", intervention.action);
             intent.putExtra("duree", intervention.duree);
             intent.putExtra("materiel", intervention.materiel);
 
-            // Lancement
             detailLauncher.launch(intent);
         });
-
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             currentDate = LocalDate.now();
@@ -150,7 +144,12 @@ public class MainActivity extends AppCompatActivity {
                 dialog.show();
             });
 
-            fabAdd.setOnClickListener(v -> createInterventionQuick(currentDate));
+            fabAdd.setOnClickListener(v -> {
+                Intent i = new Intent(MainActivity.this, AddInterventionActivity.class);
+                i.putExtra("date", currentDate.toString()); // préremplir la date
+                detailLauncher.launch(i);
+            });
+
 
         } else {
             tvDate.setText("Date");
@@ -192,7 +191,9 @@ public class MainActivity extends AppCompatActivity {
                         String action = o.optString("action_realisee", "");
                         String duree = o.optString("duree", "");
                         String materiel = o.optString("materiel", "");
-                        String statut = o.optString("statut", "Planifié");
+
+                        // ✅ défaut cohérent DB
+                        String statut = o.optString("statut", "Planifiée");
 
                         LocalDate d;
                         try { d = LocalDate.parse(dateStr); }
@@ -216,7 +217,6 @@ public class MainActivity extends AppCompatActivity {
                                 statut
                         );
 
-                        // calcul priorite int (pour couleur)
                         int prioriteInt = 1;
                         String p = (prioriteStr == null) ? "" : prioriteStr.toLowerCase(Locale.ROOT);
                         if (p.contains("haut")) prioriteInt = 3;
@@ -229,9 +229,21 @@ public class MainActivity extends AppCompatActivity {
                     adapter.setData(list);
                 },
                 error -> {
+                    int code = -1;
+                    String bodyErr = "";
+
+                    if (error.networkResponse != null) {
+                        code = error.networkResponse.statusCode;
+                        try {
+                            bodyErr = new String(error.networkResponse.data, "UTF-8");
+                        } catch (Exception ignored) {}
+                    }
+
                     error.printStackTrace();
                     adapter.setData(new ArrayList<>());
-                    Toast.makeText(this, "Erreur API : " + error.getMessage(), Toast.LENGTH_LONG).show();
+                    Toast.makeText(this,
+                            "Erreur API (" + code + "): " + bodyErr,
+                            Toast.LENGTH_LONG).show();
                 }
         );
 
@@ -246,6 +258,8 @@ public class MainActivity extends AppCompatActivity {
             JSONObject body = new JSONObject();
             body.put("reference", ref);
             body.put("date_intervention", date.toString());
+
+            // ✅ IMPORTANT : ton PHP attend "type_intervention" (PAS type_intervention)
             body.put("type_intervention", "SAV");
             body.put("priorite", "Basse");
             body.put("technicien", "");
@@ -255,8 +269,8 @@ public class MainActivity extends AppCompatActivity {
             body.put("duree", "");
             body.put("materiel", "");
 
-            // ✅ IMPORTANT: valeur identique DB + DetailActivity
-            body.put("statut", "Planifié");
+            // ✅ cohérent DB
+            body.put("statut", "Planifiée");
 
             JsonObjectRequest req = new JsonObjectRequest(
                     Request.Method.POST,
@@ -267,8 +281,20 @@ public class MainActivity extends AppCompatActivity {
                         reloadInterventionsForDay();
                     },
                     error -> {
+                        int code = -1;
+                        String bodyErr = "";
+
+                        if (error.networkResponse != null) {
+                            code = error.networkResponse.statusCode;
+                            try {
+                                bodyErr = new String(error.networkResponse.data, "UTF-8");
+                            } catch (Exception ignored) {}
+                        }
+
                         error.printStackTrace();
-                        Toast.makeText(this, "Erreur ajout : " + error.getMessage(), Toast.LENGTH_LONG).show();
+                        Toast.makeText(this,
+                                "Erreur ajout (" + code + "): " + bodyErr,
+                                Toast.LENGTH_LONG).show();
                     }
             );
 
