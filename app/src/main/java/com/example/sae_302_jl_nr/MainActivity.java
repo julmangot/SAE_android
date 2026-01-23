@@ -5,6 +5,8 @@ import android.app.DatePickerDialog;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
 import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -12,7 +14,6 @@ import android.widget.Toast;
 import androidx.activity.EdgeToEdge;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -23,7 +24,6 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonArrayRequest;
-import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
@@ -48,12 +48,17 @@ public class MainActivity extends AppCompatActivity {
     private final DateTimeFormatter formatter =
             DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.FRENCH);
 
-    private static final String API_BASE   = "http://51.38.176.17";
-    private static final String API_LIST   = API_BASE + "/interventions.php?date=";
-    private static final String API_CREATE = API_BASE + "/interventions_create.php";
+    private static final String API_BASE = "http://51.38.176.17";
+    private static final String API_LIST = API_BASE + "/interventions.php?date=";
 
     private RequestQueue requestQueue;
+
     private ActivityResultLauncher<Intent> detailLauncher;
+
+    // Swipe
+    private GestureDetector gestureDetector;
+    private static final int SWIPE_THRESHOLD = 120;
+    private static final int SWIPE_VELOCITY_THRESHOLD = 120;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -62,12 +67,40 @@ public class MainActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
 
+        // Insets
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
 
+        // Swipe detector (gauche/droite)
+        gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+                if (e1 == null || e2 == null) return false;
+
+                float diffX = e2.getX() - e1.getX();
+                float diffY = e2.getY() - e1.getY();
+
+                // On ne traite que les swipes horizontaux
+                if (Math.abs(diffX) > Math.abs(diffY)) {
+                    if (Math.abs(diffX) > SWIPE_THRESHOLD && Math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD) {
+                        if (diffX > 0) {
+                            // Swipe droite = jour précédent
+                            changeDay(-1);
+                        } else {
+                            // Swipe gauche = jour suivant
+                            changeDay(+1);
+                        }
+                        return true;
+                    }
+                }
+                return false;
+            }
+        });
+
+        // Views
         tvDate = findViewById(R.id.tvDate);
         btnPrev = findViewById(R.id.btnPrev);
         btnNext = findViewById(R.id.btnNext);
@@ -80,6 +113,7 @@ public class MainActivity extends AppCompatActivity {
 
         requestQueue = Volley.newRequestQueue(this);
 
+        // Result launcher (Detail + Add)
         detailLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
@@ -90,6 +124,7 @@ public class MainActivity extends AppCompatActivity {
                 }
         );
 
+        // Click item -> Detail
         adapter.setOnInterventionClickListener(intervention -> {
             Intent intent = new Intent(MainActivity.this, DetailActivity.class);
 
@@ -115,18 +150,11 @@ public class MainActivity extends AppCompatActivity {
             updateDateLabel();
             reloadInterventionsForDay();
 
-            btnPrev.setOnClickListener(v -> {
-                currentDate = currentDate.minusDays(1);
-                updateDateLabel();
-                reloadInterventionsForDay();
-            });
+            // Boutons prev/next
+            btnPrev.setOnClickListener(v -> changeDay(-1));
+            btnNext.setOnClickListener(v -> changeDay(+1));
 
-            btnNext.setOnClickListener(v -> {
-                currentDate = currentDate.plusDays(1);
-                updateDateLabel();
-                reloadInterventionsForDay();
-            });
-
+            // DatePicker au clic sur la date
             tvDate.setOnClickListener(v -> {
                 int year = currentDate.getYear();
                 int month = currentDate.getMonthValue() - 1;
@@ -144,12 +172,12 @@ public class MainActivity extends AppCompatActivity {
                 dialog.show();
             });
 
+            // FAB -> AddInterventionActivity
             fabAdd.setOnClickListener(v -> {
                 Intent i = new Intent(MainActivity.this, AddInterventionActivity.class);
-                i.putExtra("date", currentDate.toString()); // préremplir la date
+                i.putExtra("date", currentDate.toString()); // pré-remplir la date
                 detailLauncher.launch(i);
             });
-
 
         } else {
             tvDate.setText("Date");
@@ -160,6 +188,14 @@ public class MainActivity extends AppCompatActivity {
     private void updateDateLabel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && currentDate != null) {
             tvDate.setText(currentDate.format(formatter));
+        }
+    }
+
+    private void changeDay(int deltaDays) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && currentDate != null) {
+            currentDate = currentDate.plusDays(deltaDays);
+            updateDateLabel();
+            reloadInterventionsForDay();
         }
     }
 
@@ -191,8 +227,6 @@ public class MainActivity extends AppCompatActivity {
                         String action = o.optString("action_realisee", "");
                         String duree = o.optString("duree", "");
                         String materiel = o.optString("materiel", "");
-
-                        // ✅ défaut cohérent DB
                         String statut = o.optString("statut", "Planifiée");
 
                         LocalDate d;
@@ -241,68 +275,16 @@ public class MainActivity extends AppCompatActivity {
 
                     error.printStackTrace();
                     adapter.setData(new ArrayList<>());
-                    Toast.makeText(this,
-                            "Erreur API (" + code + "): " + bodyErr,
-                            Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Erreur API (" + code + "): " + bodyErr, Toast.LENGTH_LONG).show();
                 }
         );
 
         requestQueue.add(request);
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.O)
-    private void createInterventionQuick(LocalDate date) {
-        try {
-            String ref = "REF" + System.currentTimeMillis();
-
-            JSONObject body = new JSONObject();
-            body.put("reference", ref);
-            body.put("date_intervention", date.toString());
-
-            // ✅ IMPORTANT : ton PHP attend "type_intervention" (PAS type_intervention)
-            body.put("type_intervention", "SAV");
-            body.put("priorite", "Basse");
-            body.put("technicien", "");
-            body.put("adresse", "");
-            body.put("ville", "");
-            body.put("action_realisee", "");
-            body.put("duree", "");
-            body.put("materiel", "");
-
-            // ✅ cohérent DB
-            body.put("statut", "Planifiée");
-
-            JsonObjectRequest req = new JsonObjectRequest(
-                    Request.Method.POST,
-                    API_CREATE,
-                    body,
-                    response -> {
-                        Toast.makeText(this, "Intervention ajoutée ✅", Toast.LENGTH_SHORT).show();
-                        reloadInterventionsForDay();
-                    },
-                    error -> {
-                        int code = -1;
-                        String bodyErr = "";
-
-                        if (error.networkResponse != null) {
-                            code = error.networkResponse.statusCode;
-                            try {
-                                bodyErr = new String(error.networkResponse.data, "UTF-8");
-                            } catch (Exception ignored) {}
-                        }
-
-                        error.printStackTrace();
-                        Toast.makeText(this,
-                                "Erreur ajout (" + code + "): " + bodyErr,
-                                Toast.LENGTH_LONG).show();
-                    }
-            );
-
-            requestQueue.add(req);
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            Toast.makeText(this, "Erreur création", Toast.LENGTH_LONG).show();
-        }
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        gestureDetector.onTouchEvent(ev);
+        return super.dispatchTouchEvent(ev);
     }
 }
