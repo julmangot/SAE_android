@@ -2,51 +2,67 @@ package com.example.sae_302_jl_nr;
 
 import android.content.Intent;
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
+import android.util.DisplayMetrics;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.TextView;
-import android.widget.Toast;
 
-import androidx.activity.EdgeToEdge;
-import androidx.appcompat.app.AlertDialog;
+import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.android.volley.Request;
-import com.android.volley.RequestQueue;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
-
-import org.json.JSONObject;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 public class DetailActivity extends AppCompatActivity {
 
-    // ⚠️ Vérifie bien ton IP
-    private static final String API_BASE = "http://51.38.176.17";
-    private static final String API_STATUS = API_BASE + "/interventions_status.php";
-    private static final String API_DELETE = API_BASE + "/interventions_delete.php";
+    // ===== UI (header) =====
+    private View root;
+    private ImageButton btnBack;
+    private TextView tvHeaderTitle;
 
-    private RequestQueue requestQueue;
-
-    // Champs de l'interface
+    // ===== UI (card principale) =====
+    private View vStatusColor;
     private TextView tvTypeTitle, tvReference, tvStatutBadge, tvPrioriteBadge;
     private TextView tvDate, tvTechnicien, tvAdresse;
+
+    // ===== UI (détails techniques) =====
     private TextView tvAction, tvDuree, tvMateriel;
-    private View vStatusColor;
 
-    // Données
-    private String reference, date, statut, priorite;
-    private String type, technicien, adresse, ville, action, duree, materiel;
+    // ===== UI (bottom bar) =====
+    private Button btnModifier, btnDelete;
 
+    // ===== Data =====
+    private String reference = "";
+    private LocalDate dateIntervention = null;
+
+    // ===== Swipe back fluide (bord gauche -> droite) =====
+    private float downX = 0f;
+    private boolean trackingBack = false;
+    private int edgeSizePx;          // zone sensible bord gauche (px)
+    private int finishThresholdPx;   // distance pour valider (px)
+
+    @RequiresApi(api = Build.VERSION_CODES.O)
+    private final DateTimeFormatter dateFormatter =
+            DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.FRENCH);
+
+    @RequiresApi(api = Build.VERSION_CODES.O)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
         setContentView(R.layout.activity_detail);
 
-        // Liaison des Vues (Binding)
+        // ===== Bind root + UI =====
+        // IMPORTANT: ton root dans activity_detail.xml doit avoir android:id="@+id/rootDetail"
+        root = findViewById(R.id.rootDetail);
+
+        btnBack = findViewById(R.id.btnBack);
+        tvHeaderTitle = findViewById(R.id.tvHeaderTitle);
+
         vStatusColor = findViewById(R.id.vStatusColor);
         tvTypeTitle = findViewById(R.id.tvTypeTitle);
         tvReference = findViewById(R.id.tvReference);
@@ -61,153 +77,205 @@ public class DetailActivity extends AppCompatActivity {
         tvDuree = findViewById(R.id.tvDuree);
         tvMateriel = findViewById(R.id.tvMateriel);
 
-        ImageButton btnBack = findViewById(R.id.btnBack);
-        Button btnChangeStatus = findViewById(R.id.btnModifier);
-        Button btnDelete = findViewById(R.id.btnDelete);
+        btnModifier = findViewById(R.id.btnModifier);
+        btnDelete = findViewById(R.id.btnDelete);
 
-        requestQueue = Volley.newRequestQueue(this);
+        // Header
+        if (tvHeaderTitle != null) tvHeaderTitle.setText("Détails Mission");
 
-        // 1. Récupération des données (identique)
-        Intent i = getIntent();
-        reference = i.getStringExtra("reference");
-        date = i.getStringExtra("date");
-        statut = normalizeStatut(i.getStringExtra("statut"));
-        priorite = i.getStringExtra("priorite");
+        // Bouton retour
+        if (btnBack != null) btnBack.setOnClickListener(v -> finish());
 
-        type = i.getStringExtra("type");
-        technicien = i.getStringExtra("technicien");
-        adresse = i.getStringExtra("adresse");
-        ville = i.getStringExtra("ville");
-        action = i.getStringExtra("action");
-        duree = i.getStringExtra("duree");
-        materiel = i.getStringExtra("materiel");
+        // Swipe back fluide (comme bouton back)
+        setupSwipeBack();
 
-        if (reference == null || reference.isEmpty()) {
-            finish();
-            return;
-        }
+        // Remplir l'écran avec les extras envoyés par MainActivity
+        readExtrasAndFillUI();
 
-        // 2. Affichage
-        refreshDisplay();
-
-        // 3. Boutons
-        btnChangeStatus.setText("Changer Statut");
-        btnChangeStatus.setOnClickListener(v -> showStatusDialog());
-        btnBack.setOnClickListener(v -> finish());
-        btnDelete.setOnClickListener(v -> confirmDelete());
+        // Boutons (tu peux brancher tes APIs ici)
+        setupBottomButtons();
     }
 
-    private void refreshDisplay() {
-        // En-tête
-        tvTypeTitle.setText((type != null && !type.isEmpty()) ? type : "Intervention");
-        tvReference.setText("Réf: " + reference);
+    @RequiresApi(api = Build.VERSION_CODES.O)
+    private void readExtrasAndFillUI() {
+        Intent intent = getIntent();
 
-        // Badges & Couleurs
-        String p = (priorite != null) ? priorite.toLowerCase(Locale.ROOT) : "basse";
-        int color = Color.parseColor("#4CAF50"); // Vert
+        reference = safe(intent.getStringExtra("reference"));
+
+        String dateStr = intent.getStringExtra("date");
+        dateIntervention = parseDateOrNow(dateStr);
+
+        String statut = safeOrDefault(intent.getStringExtra("statut"), "Planifiée");
+        String priorite = safeOrDefault(intent.getStringExtra("priorite"), "Basse");
+
+        String type = safeOrDefault(intent.getStringExtra("type"), "Intervention");
+        String technicien = safe(intent.getStringExtra("technicien"));
+        String adresse = safe(intent.getStringExtra("adresse"));
+        String ville = safe(intent.getStringExtra("ville"));
+        String action = safe(intent.getStringExtra("action"));
+        String duree = safe(intent.getStringExtra("duree"));
+        String materiel = safe(intent.getStringExtra("materiel"));
+
+        // ---- UI ----
+        if (tvTypeTitle != null) tvTypeTitle.setText(type.isEmpty() ? "Intervention" : type);
+        if (tvReference != null) tvReference.setText(reference.isEmpty() ? "—" : reference);
+
+        if (tvStatutBadge != null) tvStatutBadge.setText(statut);
+        if (tvPrioriteBadge != null) tvPrioriteBadge.setText("Priorité " + priorite);
+
+        if (tvDate != null) tvDate.setText(dateIntervention.format(dateFormatter));
+        if (tvTechnicien != null) tvTechnicien.setText(technicien.isEmpty() ? "—" : technicien);
+
+        String adrFull = (adresse + (ville.isEmpty() ? "" : ", " + ville)).trim();
+        if (tvAdresse != null) tvAdresse.setText(adrFull.isEmpty() ? "—" : adrFull);
+
+        if (tvAction != null) tvAction.setText(action.isEmpty() ? "—" : action);
+        if (tvDuree != null) tvDuree.setText(duree.isEmpty() ? "—" : duree);
+        if (tvMateriel != null) tvMateriel.setText(materiel.isEmpty() ? "—" : materiel);
+
+        // Styles
+        applyPriorityColor(priorite);
+        applyStatutBadgeStyle(statut);
+    }
+
+    private void setupBottomButtons() {
+        // NOTE: ici on met juste un retour "changed=true" en exemple.
+        // Branche tes appels API (update statut / delete) à la place.
+
+        if (btnModifier != null) {
+            btnModifier.setOnClickListener(v -> {
+                // TODO: ouvrir dialog, appeler API update statut, puis:
+                Intent data = new Intent();
+                data.putExtra("changed", true);
+                setResult(RESULT_OK, data);
+                // Tu peux laisser l'écran ouvert si tu veux
+            });
+        }
+
+        if (btnDelete != null) {
+            btnDelete.setOnClickListener(v -> {
+                // TODO: appeler API delete, puis:
+                Intent data = new Intent();
+                data.putExtra("changed", true);
+                setResult(RESULT_OK, data);
+                finish();
+            });
+        }
+    }
+
+    private void setupSwipeBack() {
+        if (root == null) return;
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        edgeSizePx = (int) (24 * dm.density);          // 24dp
+        finishThresholdPx = (int) (110 * dm.density);  // 110dp
+
+        // IMPORTANT : pour capter les events sur tout l'écran
+        root.setClickable(true);
+        root.setFocusable(true);
+
+        root.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+
+                case MotionEvent.ACTION_DOWN: {
+                    downX = event.getX();
+                    trackingBack = downX <= edgeSizePx; // start depuis bord gauche
+                    return trackingBack;
+                }
+
+                case MotionEvent.ACTION_MOVE: {
+                    if (!trackingBack) return false;
+
+                    float dx = event.getX() - downX;
+                    if (dx < 0) dx = 0;
+
+                    // fluide : l'écran suit le doigt
+                    v.setTranslationX(dx);
+                    return true;
+                }
+
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL: {
+                    if (!trackingBack) return false;
+
+                    float dx = event.getX() - downX;
+
+                    if (dx > finishThresholdPx) {
+                        // Validé -> on glisse hors écran puis finish
+                        v.animate()
+                                .translationX(v.getWidth())
+                                .setDuration(180)
+                                .withEndAction(() -> {
+                                    finish();
+                                    overridePendingTransition(0, 0);
+                                })
+                                .start();
+                    } else {
+                        // Pas assez -> retour à la position 0
+                        v.animate()
+                                .translationX(0)
+                                .setDuration(180)
+                                .start();
+                    }
+
+                    trackingBack = false;
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+    private void applyPriorityColor(String prioriteStr) {
+        if (vStatusColor == null) return;
+
+        String p = (prioriteStr == null) ? "" : prioriteStr.toLowerCase(Locale.ROOT);
+        int color = Color.parseColor("#4CAF50"); // basse
 
         if (p.contains("critique")) color = Color.parseColor("#D32F2F");
         else if (p.contains("haute") || p.contains("haut")) color = Color.parseColor("#F05A5A");
         else if (p.contains("moy")) color = Color.parseColor("#F5A623");
 
         vStatusColor.setBackgroundColor(color);
-        tvPrioriteBadge.setText("Priorité : " + (priorite != null ? priorite : "Normale"));
-
-        tvStatutBadge.setText(statut.toUpperCase());
-        // Couleur dynamique du texte statut si tu veux
-        if(statut.equalsIgnoreCase("Terminée")) tvStatutBadge.setTextColor(Color.parseColor("#2E7D32")); // Vert foncé
-        else tvStatutBadge.setTextColor(Color.parseColor("#1565C0")); // Bleu
-
-        // Infos Principales
-        tvDate.setText(checkNull(date));
-        tvTechnicien.setText(technicien != null && !technicien.isEmpty() ? technicien : "Non assigné");
-
-        String loc = "";
-        if (adresse != null) loc += adresse;
-        if (ville != null && !ville.isEmpty()) loc += (loc.isEmpty() ? "" : ", ") + ville;
-        tvAdresse.setText(loc.isEmpty() ? "Adresse non renseignée" : loc);
-
-        // Technique
-        tvAction.setText(checkNull(action));
-        tvDuree.setText(checkNull(duree));
-        tvMateriel.setText(checkNull(materiel));
     }
 
-    private String checkNull(String txt) {
-        return (txt == null || txt.isEmpty()) ? "-" : txt;
+    private void applyStatutBadgeStyle(String statut) {
+        if (tvStatutBadge == null) return;
+
+        String s = (statut == null) ? "" : statut.toLowerCase(Locale.ROOT);
+
+        if (s.contains("plan")) {
+            tvStatutBadge.setBackgroundColor(Color.parseColor("#E3F2FD"));
+            tvStatutBadge.setTextColor(Color.parseColor("#1565C0"));
+        } else if (s.contains("cours")) {
+            tvStatutBadge.setBackgroundColor(Color.parseColor("#FFF3E0"));
+            tvStatutBadge.setTextColor(Color.parseColor("#E65100"));
+        } else if (s.contains("termin")) {
+            tvStatutBadge.setBackgroundColor(Color.parseColor("#E8F5E9"));
+            tvStatutBadge.setTextColor(Color.parseColor("#2E7D32"));
+        }
     }
 
-    // --- Les fonctions API restent identiques ---
+    // ===== Utils =====
 
-    private void showStatusDialog() {
-        final String[] options = {"Planifiée", "En cours", "Terminée"};
-        int checkedItem = 0;
-        if ("En cours".equalsIgnoreCase(statut)) checkedItem = 1;
-        else if ("Terminée".equalsIgnoreCase(statut)) checkedItem = 2;
-        final int[] selected = {checkedItem};
-
-        new AlertDialog.Builder(this)
-                .setTitle("Modifier le statut")
-                .setSingleChoiceItems(options, checkedItem, (dialog, which) -> selected[0] = which)
-                .setPositiveButton("Valider", (dialog, which) -> updateStatusOnServer(options[selected[0]]))
-                .setNegativeButton("Annuler", null)
-                .show();
+    private static String safe(String s) {
+        return (s == null) ? "" : s.trim();
     }
 
-    private void updateStatusOnServer(String newStatusRaw) {
-        String newStatus = normalizeStatut(newStatusRaw);
+    private static String safeOrDefault(String s, String def) {
+        String v = safe(s);
+        return v.isEmpty() ? def : v;
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.O)
+    private static LocalDate parseDateOrNow(String dateStr) {
         try {
-            JSONObject body = new JSONObject();
-            body.put("reference", reference);
-            body.put("statut", newStatus);
-
-            JsonObjectRequest req = new JsonObjectRequest(Request.Method.POST, API_STATUS, body,
-                    response -> {
-                        statut = newStatus;
-                        refreshDisplay();
-                        Toast.makeText(this, "Mis à jour !", Toast.LENGTH_SHORT).show();
-                        Intent resultIntent = new Intent();
-                        resultIntent.putExtra("changed", true);
-                        setResult(RESULT_OK, resultIntent);
-                    },
-                    error -> Toast.makeText(this, "Erreur API", Toast.LENGTH_SHORT).show()
-            );
-            requestQueue.add(req);
-        } catch (Exception e) { e.printStackTrace(); }
-    }
-
-    private void confirmDelete() {
-        new AlertDialog.Builder(this)
-                .setTitle("Supprimer ?")
-                .setMessage("Action irréversible.")
-                .setPositiveButton("Supprimer", (d, w) -> deleteOnServer())
-                .setNegativeButton("Annuler", null)
-                .show();
-    }
-
-    private void deleteOnServer() {
-        try {
-            JSONObject body = new JSONObject();
-            body.put("reference", reference);
-            JsonObjectRequest req = new JsonObjectRequest(Request.Method.POST, API_DELETE, body,
-                    response -> {
-                        Toast.makeText(this, "Supprimé", Toast.LENGTH_SHORT).show();
-                        Intent resultIntent = new Intent();
-                        resultIntent.putExtra("changed", true);
-                        setResult(RESULT_OK, resultIntent);
-                        finish();
-                    },
-                    error -> Toast.makeText(this, "Erreur suppression", Toast.LENGTH_SHORT).show()
-            );
-            requestQueue.add(req);
-        } catch (Exception e) { e.printStackTrace(); }
-    }
-
-    private String normalizeStatut(String s) {
-        if (s == null) return "Planifiée";
-        String t = s.trim();
-        if (t.equalsIgnoreCase("Terminé") || t.equalsIgnoreCase("Termine")) return "Terminée";
-        if (t.equalsIgnoreCase("Planifié")) return "Planifiée";
-        return t;
+            if (dateStr == null) return LocalDate.now();
+            String ds = dateStr.trim();
+            if (ds.contains(" ")) ds = ds.split(" ")[0];
+            return LocalDate.parse(ds);
+        } catch (Exception e) {
+            return LocalDate.now();
+        }
     }
 }
