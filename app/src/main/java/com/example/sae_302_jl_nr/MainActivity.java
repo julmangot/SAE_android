@@ -251,13 +251,22 @@ public class MainActivity extends AppCompatActivity {
                                 statut
                         );
 
-                        int prioriteInt = 1;
+                        // --- CALCUL DE LA PRIORITÉ ---
+                        int prioriteInt = 1; // Basse par défaut
                         String p = (prioriteStr == null) ? "" : prioriteStr.toLowerCase(Locale.ROOT);
-                        if (p.contains("haut")) prioriteInt = 3;
-                        else if (p.contains("moy")) prioriteInt = 2;
-                        in.priorite = prioriteInt;
 
+                        if (p.contains("critique")) prioriteInt = 4;      // Niveau max
+                        else if (p.contains("haut")) prioriteInt = 3;     // Haute
+                        else if (p.contains("moy")) prioriteInt = 2;      // Moyenne
+                        // Sinon 1 (Basse)
+
+                        in.priorite = prioriteInt;
                         list.add(in);
+                    }
+
+                    // --- TRI DE LA LISTE (Du plus grand au plus petit) ---
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        list.sort((i1, i2) -> Integer.compare(i2.priorite, i1.priorite));
                     }
 
                     adapter.setData(list);
