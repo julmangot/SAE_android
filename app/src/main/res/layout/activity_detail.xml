@@ -166,9 +166,9 @@
                                 android:orientation="horizontal">
 
                                 <TextView
-                                    android:layout_width="24dp"
+                                    android:layout_width="50dp"
                                     android:layout_height="wrap_content"
-                                    android:text="📅"
+                                    android:text="Date :"
                                     android:textSize="16sp" />
 
                                 <TextView
@@ -189,9 +189,9 @@
                                 android:orientation="horizontal">
 
                                 <TextView
-                                    android:layout_width="24dp"
+                                    android:layout_width="100dp"
                                     android:layout_height="wrap_content"
-                                    android:text="👤"
+                                    android:text="Technicien :"
                                     android:textSize="16sp" />
 
                                 <TextView
@@ -211,9 +211,9 @@
                                 android:orientation="horizontal">
 
                                 <TextView
-                                    android:layout_width="24dp"
+                                    android:layout_width="50dp"
                                     android:layout_height="wrap_content"
-                                    android:text="📍"
+                                    android:text="Lieu :"
                                     android:textSize="16sp" />
 
                                 <TextView
