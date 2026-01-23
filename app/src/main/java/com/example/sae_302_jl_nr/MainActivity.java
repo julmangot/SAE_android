@@ -29,6 +29,7 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
 import org.json.JSONObject;
 
+import java.time.DayOfWeek; // Import nécessaire pour gérer les jours
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -147,6 +148,13 @@ public class MainActivity extends AppCompatActivity {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             currentDate = LocalDate.now();
+
+            // --- MODIF 1 : Si on lance l'appli un Week-End, on passe au Lundi ---
+            while (currentDate.getDayOfWeek() == DayOfWeek.SATURDAY ||
+                    currentDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
+                currentDate = currentDate.plusDays(1);
+            }
+
             updateDateLabel();
             reloadInterventionsForDay();
 
@@ -191,9 +199,25 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // --- MODIF 2 : Nouvelle logique pour sauter le week-end lors de la navigation ---
     private void changeDay(int deltaDays) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && currentDate != null) {
+            // 1. On applique le changement demandé (+1 ou -1)
             currentDate = currentDate.plusDays(deltaDays);
+
+            // 2. Tant que c'est Samedi ou Dimanche, on continue d'avancer ou de reculer
+            while (currentDate.getDayOfWeek() == DayOfWeek.SATURDAY ||
+                    currentDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
+
+                if (deltaDays > 0) {
+                    // Si on allait vers le futur, on avance pour tomber sur Lundi
+                    currentDate = currentDate.plusDays(1);
+                } else {
+                    // Si on allait vers le passé, on recule pour tomber sur Vendredi
+                    currentDate = currentDate.minusDays(1);
+                }
+            }
+
             updateDateLabel();
             reloadInterventionsForDay();
         }
