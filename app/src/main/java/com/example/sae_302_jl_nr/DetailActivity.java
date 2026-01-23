@@ -7,6 +7,7 @@ import android.os.Bundle;
 import android.util.DisplayMetrics;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.TextView;
@@ -20,31 +21,26 @@ import java.util.Locale;
 
 public class DetailActivity extends AppCompatActivity {
 
-    // ===== UI (header) =====
+    // ===== UI =====
     private View root;
     private ImageButton btnBack;
-    private TextView tvHeaderTitle;
 
-    // ===== UI (card principale) =====
     private View vStatusColor;
     private TextView tvTypeTitle, tvReference, tvStatutBadge, tvPrioriteBadge;
     private TextView tvDate, tvTechnicien, tvAdresse;
-
-    // ===== UI (détails techniques) =====
     private TextView tvAction, tvDuree, tvMateriel;
 
-    // ===== UI (bottom bar) =====
     private Button btnModifier, btnDelete;
 
     // ===== Data =====
     private String reference = "";
     private LocalDate dateIntervention = null;
 
-    // ===== Swipe back fluide (bord gauche -> droite) =====
-    private float downX = 0f;
+    // ===== Swipe-back "partout" (gauche -> droite) =====
+    private float downX = 0f, downY = 0f;
     private boolean trackingBack = false;
-    private int edgeSizePx;          // zone sensible bord gauche (px)
-    private int finishThresholdPx;   // distance pour valider (px)
+    private int finishThresholdPx;     // distance pour valider le retour
+    private int touchSlopPx;           // évite déclenchement par petits mouvements
 
     @RequiresApi(api = Build.VERSION_CODES.O)
     private final DateTimeFormatter dateFormatter =
@@ -56,12 +52,11 @@ public class DetailActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_detail);
 
-        // ===== Bind root + UI =====
-        // IMPORTANT: ton root dans activity_detail.xml doit avoir android:id="@+id/rootDetail"
+        // Root (tu as ajouté android:id="@+id/rootDetail" dans ton XML)
         root = findViewById(R.id.rootDetail);
 
+        // Bind views
         btnBack = findViewById(R.id.btnBack);
-        tvHeaderTitle = findViewById(R.id.tvHeaderTitle);
 
         vStatusColor = findViewById(R.id.vStatusColor);
         tvTypeTitle = findViewById(R.id.tvTypeTitle);
@@ -80,20 +75,94 @@ public class DetailActivity extends AppCompatActivity {
         btnModifier = findViewById(R.id.btnModifier);
         btnDelete = findViewById(R.id.btnDelete);
 
-        // Header
-        if (tvHeaderTitle != null) tvHeaderTitle.setText("Détails Mission");
-
-        // Bouton retour
+        // Back button
         if (btnBack != null) btnBack.setOnClickListener(v -> finish());
 
-        // Swipe back fluide (comme bouton back)
-        setupSwipeBack();
+        // Setup swipe "partout"
+        setupGlobalSwipeBack();
 
-        // Remplir l'écran avec les extras envoyés par MainActivity
+        // Fill UI from intent
         readExtrasAndFillUI();
 
-        // Boutons (tu peux brancher tes APIs ici)
+        // Bottom buttons (placeholder -> à brancher sur tes APIs)
         setupBottomButtons();
+    }
+
+    private void setupGlobalSwipeBack() {
+        if (root == null) return;
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        finishThresholdPx = (int) (110 * dm.density); // 110dp
+        touchSlopPx = ViewConfiguration.get(this).getScaledTouchSlop();
+
+        root.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+
+                case MotionEvent.ACTION_DOWN: {
+                    downX = event.getX();
+                    downY = event.getY();
+                    trackingBack = false;
+
+                    // IMPORTANT : on ne consomme pas encore, sinon scroll vertical cassé
+                    return false;
+                }
+
+                case MotionEvent.ACTION_MOVE: {
+                    float dx = event.getX() - downX;
+                    float dy = event.getY() - downY;
+
+                    // tant que c'est un petit mouvement -> laisse scroller
+                    if (Math.abs(dx) < touchSlopPx && Math.abs(dy) < touchSlopPx) {
+                        return false;
+                    }
+
+                    // Si on n'a pas encore "pris" le gesture :
+                    if (!trackingBack) {
+                        // si l'utilisateur part vertical -> laisser le ScrollView gérer
+                        if (Math.abs(dy) > Math.abs(dx)) {
+                            return false;
+                        }
+                        // c'est horizontal -> on prend le contrôle
+                        trackingBack = true;
+                        v.getParent().requestDisallowInterceptTouchEvent(true);
+                    }
+
+                    // trackingBack = true : on anime l'écran avec le doigt
+                    if (dx < 0) dx = 0; // on ignore swipe droite->gauche
+                    v.setTranslationX(dx);
+                    return true;
+                }
+
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL: {
+                    if (!trackingBack) return false;
+
+                    float dx = event.getX() - downX;
+
+                    if (dx > finishThresholdPx) {
+                        // retour validé
+                        v.animate()
+                                .translationX(v.getWidth())
+                                .setDuration(180)
+                                .withEndAction(() -> {
+                                    finish();
+                                    overridePendingTransition(0, 0);
+                                })
+                                .start();
+                    } else {
+                        // annule -> revient en place
+                        v.animate()
+                                .translationX(0)
+                                .setDuration(180)
+                                .start();
+                    }
+
+                    trackingBack = false;
+                    return true;
+                }
+            }
+            return false;
+        });
     }
 
     @RequiresApi(api = Build.VERSION_CODES.O)
@@ -101,9 +170,7 @@ public class DetailActivity extends AppCompatActivity {
         Intent intent = getIntent();
 
         reference = safe(intent.getStringExtra("reference"));
-
         String dateStr = intent.getStringExtra("date");
-        dateIntervention = parseDateOrNow(dateStr);
 
         String statut = safeOrDefault(intent.getStringExtra("statut"), "Planifiée");
         String priorite = safeOrDefault(intent.getStringExtra("priorite"), "Basse");
@@ -116,7 +183,8 @@ public class DetailActivity extends AppCompatActivity {
         String duree = safe(intent.getStringExtra("duree"));
         String materiel = safe(intent.getStringExtra("materiel"));
 
-        // ---- UI ----
+        dateIntervention = parseDateOrNow(dateStr);
+
         if (tvTypeTitle != null) tvTypeTitle.setText(type.isEmpty() ? "Intervention" : type);
         if (tvReference != null) tvReference.setText(reference.isEmpty() ? "—" : reference);
 
@@ -133,28 +201,23 @@ public class DetailActivity extends AppCompatActivity {
         if (tvDuree != null) tvDuree.setText(duree.isEmpty() ? "—" : duree);
         if (tvMateriel != null) tvMateriel.setText(materiel.isEmpty() ? "—" : materiel);
 
-        // Styles
         applyPriorityColor(priorite);
         applyStatutBadgeStyle(statut);
     }
 
     private void setupBottomButtons() {
-        // NOTE: ici on met juste un retour "changed=true" en exemple.
-        // Branche tes appels API (update statut / delete) à la place.
-
+        // ⚠️ placeholder : remplace par tes appels API statut/delete
         if (btnModifier != null) {
             btnModifier.setOnClickListener(v -> {
-                // TODO: ouvrir dialog, appeler API update statut, puis:
                 Intent data = new Intent();
                 data.putExtra("changed", true);
                 setResult(RESULT_OK, data);
-                // Tu peux laisser l'écran ouvert si tu veux
+                // tu peux rester sur la page si tu veux
             });
         }
 
         if (btnDelete != null) {
             btnDelete.setOnClickListener(v -> {
-                // TODO: appeler API delete, puis:
                 Intent data = new Intent();
                 data.putExtra("changed", true);
                 setResult(RESULT_OK, data);
@@ -163,75 +226,12 @@ public class DetailActivity extends AppCompatActivity {
         }
     }
 
-    private void setupSwipeBack() {
-        if (root == null) return;
-
-        DisplayMetrics dm = getResources().getDisplayMetrics();
-        edgeSizePx = (int) (24 * dm.density);          // 24dp
-        finishThresholdPx = (int) (110 * dm.density);  // 110dp
-
-        // IMPORTANT : pour capter les events sur tout l'écran
-        root.setClickable(true);
-        root.setFocusable(true);
-
-        root.setOnTouchListener((v, event) -> {
-            switch (event.getActionMasked()) {
-
-                case MotionEvent.ACTION_DOWN: {
-                    downX = event.getX();
-                    trackingBack = downX <= edgeSizePx; // start depuis bord gauche
-                    return trackingBack;
-                }
-
-                case MotionEvent.ACTION_MOVE: {
-                    if (!trackingBack) return false;
-
-                    float dx = event.getX() - downX;
-                    if (dx < 0) dx = 0;
-
-                    // fluide : l'écran suit le doigt
-                    v.setTranslationX(dx);
-                    return true;
-                }
-
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL: {
-                    if (!trackingBack) return false;
-
-                    float dx = event.getX() - downX;
-
-                    if (dx > finishThresholdPx) {
-                        // Validé -> on glisse hors écran puis finish
-                        v.animate()
-                                .translationX(v.getWidth())
-                                .setDuration(180)
-                                .withEndAction(() -> {
-                                    finish();
-                                    overridePendingTransition(0, 0);
-                                })
-                                .start();
-                    } else {
-                        // Pas assez -> retour à la position 0
-                        v.animate()
-                                .translationX(0)
-                                .setDuration(180)
-                                .start();
-                    }
-
-                    trackingBack = false;
-                    return true;
-                }
-            }
-            return false;
-        });
-    }
-
     private void applyPriorityColor(String prioriteStr) {
         if (vStatusColor == null) return;
 
         String p = (prioriteStr == null) ? "" : prioriteStr.toLowerCase(Locale.ROOT);
-        int color = Color.parseColor("#4CAF50"); // basse
 
+        int color = Color.parseColor("#4CAF50"); // basse
         if (p.contains("critique")) color = Color.parseColor("#D32F2F");
         else if (p.contains("haute") || p.contains("haut")) color = Color.parseColor("#F05A5A");
         else if (p.contains("moy")) color = Color.parseColor("#F5A623");
