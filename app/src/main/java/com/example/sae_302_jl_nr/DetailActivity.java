@@ -94,9 +94,7 @@ public class DetailActivity extends AppCompatActivity {
      * onCreate :
      * - bind des vues
      * - récupère les infos envoyées par Intent
-     * - configure boutons + swipe retour
      */
-    @RequiresApi(api = Build.VERSION_CODES.O)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -143,8 +141,6 @@ public class DetailActivity extends AppCompatActivity {
         // Associe les actions aux boutons
         setupButtons();
 
-        // Swipe retour (sauf sur la zone des boutons)
-        setupSwipeBackExcludingBottom();
     }
 
     /**
@@ -313,75 +309,6 @@ public class DetailActivity extends AppCompatActivity {
             Toast.makeText(this, "Erreur JSON", Toast.LENGTH_LONG).show();
         }
     }
-
-    /**
-     * Swipe retour sur le reste de la page.
-     * - ignoré si on touche la zone des boutons
-     * - ignoré si une requête réseau est en cours
-     */
-    private void setupSwipeBackExcludingBottom() {
-        if (root == null) return;
-
-        root.setOnTouchListener((v, event) -> {
-            if (networkBusy) return false;
-
-            switch (event.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    downX = event.getX();
-                    downY = event.getY();
-                    trackingBack = false;
-
-                    // Si le doigt est dans la zone boutons -> pas de swipe
-                    ignoreSwipeThisGesture =
-                            bottomActionContainer != null && isTouchInsideView(event, bottomActionContainer);
-                    return false;
-
-                case MotionEvent.ACTION_MOVE:
-                    if (ignoreSwipeThisGesture) return false;
-
-                    float dx = event.getX() - downX;
-                    float dy = event.getY() - downY;
-
-                    // Pas assez bougé -> on laisse click/scroll
-                    if (Math.abs(dx) < touchSlopPx && Math.abs(dy) < touchSlopPx) return false;
-
-                    // Si mouvement vertical dominant -> on laisse le scroll
-                    if (!trackingBack && Math.abs(dy) > Math.abs(dx)) return false;
-
-                    // On ne prend que le swipe gauche -> droite
-                    if (!trackingBack) {
-                        if (dx <= 0) return false;
-                        trackingBack = true;
-                        v.getParent().requestDisallowInterceptTouchEvent(true);
-                    }
-
-                    v.setTranslationX(Math.max(dx, 0));
-                    return true;
-
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    if (!trackingBack || ignoreSwipeThisGesture) return false;
-
-                    float finalDx = event.getX() - downX;
-
-                    if (finalDx > finishThresholdPx) {
-                        v.animate().translationX(v.getWidth()).setDuration(180)
-                                .withEndAction(() -> {
-                                    finish();
-                                    overridePendingTransition(0, 0);
-                                })
-                                .start();
-                    } else {
-                        v.animate().translationX(0).setDuration(180).start();
-                    }
-
-                    trackingBack = false;
-                    return true;
-            }
-            return false;
-        });
-    }
-
     /**
      * Vérifie si un toucher est à l’intérieur d’une vue (en coordonnées écran)
      */
