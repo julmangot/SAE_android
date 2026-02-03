@@ -37,7 +37,6 @@ import java.util.Locale;
  * - Afficher toutes les infos d’une intervention (données reçues via Intent)
  * - Modifier le statut (appel API)
  * - Supprimer l’intervention (appel API)
- * - Swipe gauche → droite pour revenir en arrière (hors zone boutons)
  *
  * Important :
  * - Cette Activity ne modifie pas la base directement : tout passe par l’API PHP.
@@ -55,8 +54,8 @@ public class DetailActivity extends AppCompatActivity {
     private RequestQueue queue;
 
     // ================= UI =================
-    private View root;                    // Vue racine (sert à détecter le swipe)
-    private View bottomActionContainer;   // Zone boutons (à exclure du swipe)
+    private View root;                    // Vue racine (si tu veux gérer swipe plus tard)
+    private View bottomActionContainer;   // Zone boutons
 
     private ImageButton btnBack;
     private View vStatusColor;
@@ -74,14 +73,6 @@ public class DetailActivity extends AppCompatActivity {
     private String currentStatut   = "Planifiée";
     private String currentPriorite = "Basse";
 
-    // ================= Swipe back =================
-    private float downX = 0f, downY = 0f;
-    private boolean trackingBack = false;
-    private boolean ignoreSwipeThisGesture = false;
-
-    private int finishThresholdPx;
-    private int touchSlopPx;
-
     // Bloque les actions/retour pendant une requête réseau
     private boolean networkBusy = false;
 
@@ -90,11 +81,6 @@ public class DetailActivity extends AppCompatActivity {
     private final DateTimeFormatter dateFormatter =
             DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.FRENCH);
 
-    /**
-     * onCreate :
-     * - bind des vues
-     * - récupère les infos envoyées par Intent
-     */
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -103,7 +89,7 @@ public class DetailActivity extends AppCompatActivity {
         // Initialise Volley
         queue = Volley.newRequestQueue(this);
 
-        // Root + zone boutons
+        // Root + zone boutons (si ids existent dans ton XML)
         root = findViewById(R.id.rootDetail);
         bottomActionContainer = findViewById(R.id.bottomActionContainer);
 
@@ -127,25 +113,24 @@ public class DetailActivity extends AppCompatActivity {
         btnModifier = findViewById(R.id.btnModifier);
         btnDelete = findViewById(R.id.btnDelete);
 
-        // Seuils swipe (convertis en pixels selon densité écran)
-        DisplayMetrics dm = getResources().getDisplayMetrics();
-        finishThresholdPx = (int) (110 * dm.density);
-        touchSlopPx = ViewConfiguration.get(this).getScaledTouchSlop();
-
         // Bouton retour simple
         btnBack.setOnClickListener(v -> finish());
 
-        // Remplit l’UI avec les données de l’Intent
-        readExtrasAndFillUI();
+        // ✅ Remplit l’UI avec TOUTES les données de l’Intent
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            readExtrasAndFillUI();
+        } else {
+            // Fallback si API < 26
+            tvReference.setText("—");
+            tvStatutBadge.setText("—");
+            tvPrioriteBadge.setText("—");
+            tvDate.setText("—");
+        }
 
         // Associe les actions aux boutons
         setupButtons();
-
     }
 
-    /**
-     * Associe les actions aux boutons Modifier et Supprimer
-     */
     private void setupButtons() {
         btnModifier.setOnClickListener(v -> showStatutDialog());
         btnDelete.setOnClickListener(v -> showDeleteConfirm());
@@ -153,15 +138,10 @@ public class DetailActivity extends AppCompatActivity {
 
     /**
      * Affiche un dialog pour choisir un statut.
-     *
-     * ⚠️ Fix Java important :
-     * - Une variable utilisée dans une lambda doit être "final" ou "effectively final"
-     * - Comme checkedIndex est modifié dans la boucle, on copie sa valeur dans un final.
      */
     private void showStatutDialog() {
         final String[] statuts = new String[]{"Planifiée", "En cours", "Terminée"};
 
-        // Calcul de l'index sélectionné (variable non-final OK ici)
         int checkedIndexTmp = 0;
         for (int i = 0; i < statuts.length; i++) {
             if (statuts[i].equalsIgnoreCase(currentStatut)) {
@@ -169,8 +149,6 @@ public class DetailActivity extends AppCompatActivity {
                 break;
             }
         }
-
-        // ✅ Copie "final" utilisable dans la lambda
         final int checkedIndexFinal = checkedIndexTmp;
 
         new AlertDialog.Builder(this)
@@ -189,9 +167,6 @@ public class DetailActivity extends AppCompatActivity {
                 .show();
     }
 
-    /**
-     * Confirmation avant suppression
-     */
     private void showDeleteConfirm() {
         new AlertDialog.Builder(this)
                 .setTitle("Supprimer")
@@ -201,13 +176,63 @@ public class DetailActivity extends AppCompatActivity {
                 .show();
     }
 
-    /**
-     * Active / désactive les boutons (pratique pendant réseau)
-     */
     private void setButtonsEnabled(boolean enabled) {
         if (btnModifier != null) btnModifier.setEnabled(enabled);
         if (btnDelete != null) btnDelete.setEnabled(enabled);
         if (btnBack != null) btnBack.setEnabled(enabled);
+    }
+
+    /**
+     * ✅ CORRECTION PRINCIPALE :
+     * Lit TOUS les extras envoyés par MainActivity et remplit TOUTE l'UI.
+     */
+    @RequiresApi(api = Build.VERSION_CODES.O)
+    private void readExtrasAndFillUI() {
+        Intent intent = getIntent();
+
+        // ----- Champs clés -----
+        reference = safe(intent.getStringExtra("reference"));
+        currentStatut = safeOrDefault(intent.getStringExtra("statut"), "Planifiée");
+        currentPriorite = safeOrDefault(intent.getStringExtra("priorite"), "Basse");
+        dateIntervention = parseDateOrNow(intent.getStringExtra("date"));
+
+        // ----- Champs détails (envoyés par MainActivity) -----
+        String type = safe(intent.getStringExtra("type"));
+        String technicien = safe(intent.getStringExtra("technicien"));
+        String adresse = safe(intent.getStringExtra("adresse"));
+        String ville = safe(intent.getStringExtra("ville"));
+        String action = safe(intent.getStringExtra("action"));
+        String duree = safe(intent.getStringExtra("duree"));
+        String materiel = safe(intent.getStringExtra("materiel"));
+
+        // ----- UI : champs en haut -----
+        tvReference.setText(reference.isEmpty() ? "—" : reference);
+
+        tvStatutBadge.setText(currentStatut);
+        tvPrioriteBadge.setText("Priorité " + currentPriorite);
+        tvDate.setText(dateIntervention.format(dateFormatter));
+
+        // ✅ Type
+        if (tvTypeTitle != null) tvTypeTitle.setText(type.isEmpty() ? "—" : type);
+
+        // ✅ Technicien
+        if (tvTechnicien != null) tvTechnicien.setText(technicien.isEmpty() ? "—" : technicien);
+
+        // ✅ Adresse + Ville
+        String fullAdresse = adresse;
+        if (!ville.isEmpty()) {
+            fullAdresse = (fullAdresse.isEmpty() ? "" : fullAdresse + ", ") + ville;
+        }
+        if (tvAdresse != null) tvAdresse.setText(fullAdresse.isEmpty() ? "—" : fullAdresse);
+
+        // ✅ Action / Durée / Matériel
+        if (tvAction != null) tvAction.setText(action.isEmpty() ? "—" : action);
+        if (tvDuree != null) tvDuree.setText(duree.isEmpty() ? "—" : duree);
+        if (tvMateriel != null) tvMateriel.setText(materiel.isEmpty() ? "—" : materiel);
+
+        // ----- Styles -----
+        applyPriorityColor(currentPriorite);
+        applyStatutBadgeStyle(currentStatut);
     }
 
     /**
@@ -235,12 +260,10 @@ public class DetailActivity extends AppCompatActivity {
                         networkBusy = false;
                         setButtonsEnabled(true);
 
-                        // Mise à jour locale + UI
                         currentStatut = response.optString("statut_saved", newStatut);
                         tvStatutBadge.setText(currentStatut);
                         applyStatutBadgeStyle(currentStatut);
 
-                        // Informe l’écran précédent qu’il doit recharger
                         Intent data = new Intent();
                         data.putExtra("changed", true);
                         setResult(RESULT_OK, data);
@@ -309,52 +332,15 @@ public class DetailActivity extends AppCompatActivity {
             Toast.makeText(this, "Erreur JSON", Toast.LENGTH_LONG).show();
         }
     }
-    /**
-     * Vérifie si un toucher est à l’intérieur d’une vue (en coordonnées écran)
-     */
-    private boolean isTouchInsideView(MotionEvent event, View view) {
-        int[] loc = new int[2];
-        view.getLocationOnScreen(loc);
 
-        float x = event.getRawX();
-        float y = event.getRawY();
+    // =================== Styles ===================
 
-        return x >= loc[0] && x <= loc[0] + view.getWidth()
-                && y >= loc[1] && y <= loc[1] + view.getHeight();
-    }
-
-    /**
-     * Lit les données envoyées par Intent et remplit l’UI.
-     * (ici tu peux ajouter les champs type/technicien/etc si tu veux les afficher)
-     */
-    @RequiresApi(api = Build.VERSION_CODES.O)
-    private void readExtrasAndFillUI() {
-        Intent intent = getIntent();
-
-        reference = safe(intent.getStringExtra("reference"));
-        currentStatut = safeOrDefault(intent.getStringExtra("statut"), "Planifiée");
-        currentPriorite = safeOrDefault(intent.getStringExtra("priorite"), "Basse");
-
-        dateIntervention = parseDateOrNow(intent.getStringExtra("date"));
-
-        tvReference.setText(reference.isEmpty() ? "—" : reference);
-        tvStatutBadge.setText(currentStatut);
-        tvPrioriteBadge.setText("Priorité " + currentPriorite);
-        tvDate.setText(dateIntervention.format(dateFormatter));
-
-        applyPriorityColor(currentPriorite);
-        applyStatutBadgeStyle(currentStatut);
-    }
-
-    /**
-     * Barre colorée selon la priorité
-     */
     private void applyPriorityColor(String priorite) {
         if (vStatusColor == null) return;
 
         String p = priorite.toLowerCase(Locale.ROOT);
 
-        int color = Color.parseColor("#4CAF50");          // défaut : vert
+        int color = Color.parseColor("#4CAF50"); // défaut : vert
         if (p.contains("critique")) color = Color.parseColor("#D32F2F"); // rouge
         else if (p.contains("haute") || p.contains("haut")) color = Color.parseColor("#F05A5A");
         else if (p.contains("moy")) color = Color.parseColor("#F5A623"); // orange
@@ -362,9 +348,6 @@ public class DetailActivity extends AppCompatActivity {
         vStatusColor.setBackgroundColor(color);
     }
 
-    /**
-     * Style du badge statut (couleur fond + texte)
-     */
     private void applyStatutBadgeStyle(String statut) {
         if (tvStatutBadge == null) return;
 
@@ -382,7 +365,7 @@ public class DetailActivity extends AppCompatActivity {
         }
     }
 
-    // ================= Utils =================
+    // =================== Utils ===================
 
     private static String safe(String s) {
         return (s == null) ? "" : s.trim();
